@@ -39,9 +39,9 @@ class CarthageMirrorsVm(LinuxMachine):
 
 
         @inject(model = MachineModel)
-        dedf mirrors_vars(model):
-        return dict(
-            storage_path = model.storage_nfs_path,
+        def mirrors_vars(model):
+            return dict(
+                storage_path = model.storage_nfs_path,
             )
 
         carthage_mirrors_role = ansible_role_task('carthage-mirrors', vars=mirrors_vars)

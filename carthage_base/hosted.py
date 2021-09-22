@@ -9,6 +9,7 @@ import socket
 from carthage import *
 import carthage.container
 import carthage.vm
+from carthage.machine import BareMetalMachine
 
 __all__ = []
 
