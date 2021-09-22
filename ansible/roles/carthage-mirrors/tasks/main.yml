@@ -1,0 +1,5 @@
+- apt: name=nfs-common,docker.io,docker-compose,wget state=present
+  name: install docker and docker-compose
+- mount: src={{storage_path}} fstype=nfs name=/storage opts=nocto state=mounted
+  name: mount /storage
+  
