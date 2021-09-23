@@ -9,6 +9,7 @@ import socket
 from carthage import *
 import carthage.container
 import carthage.vm
+import carthage.local
 from carthage.machine import BareMetalMachine
 
 __all__ = []
@@ -32,4 +33,7 @@ class HostedContainer(HostedMachine):
 class HostedVm(HostedMachine):
     implementation = carthage.vm.Vm
 
-__all__ += ['HostedContainer', 'HostedVm']
+class BareOrLocal(HostedMachine):
+    implementation = carthage.local.LocalMachine
+
+__all__ += ['HostedContainer', 'HostedVm', 'BareOrLocal']
