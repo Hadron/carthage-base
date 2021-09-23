@@ -7,6 +7,8 @@
 # LICENSE for details.
 from carthage import *
 from carthage.modeling import *
+from pathlib import Path
+
 __all__ = []
 
 class DhcpRole(MachineModel, template = True):
