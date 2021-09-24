@@ -1,0 +1,12 @@
+- name: install software
+  apt: name=nfs-common,libvirt-daemon-system,socat,systemd-container,ovmf,genisoimage,qemu-kvm,fai-setup-storage,sshfs,python3-yaml,python3-mako,python3-pyvmomi,python3-sh,python3-hvac,git,sshfs,dosfstools,genisoimage state=present
+- name: install fai-server
+  apt: install_recommends=no name=fai-server state=present
+- name: enable nested virtualization
+  copy:
+    content: |
+      options kvm_intel nested=y
+    dest: /etc/modprobe.d/kvm_intel.conf
+    mode: 0644
+    owner: root
+    
