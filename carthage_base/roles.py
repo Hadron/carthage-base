@@ -5,8 +5,12 @@
 # WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the file
 # LICENSE for details.
+import os.path
+import carthage
 from carthage import *
 from carthage.modeling import *
+from carthage.ssh import SshKey
+from carthage.ansible import *
 from pathlib import Path
 
 __all__ = []
@@ -44,3 +48,42 @@ class DhcpRole(MachineModel, template = True):
 
 __all__ += ['DhcpRole']
             
+class CarthageServerRole(MachineModel, template = True):
+
+    project_destination = "/"
+    #: If true (the default), then checkout_dir is synchronized to the destination
+    
+    copy_in_checkouts = True
+
+    class customize_for_carthage(MachineCustomization):
+
+        @setup_task("Copy in carthage and layout")
+        @inject(ainjector=AsyncInjector,
+                ssh_key=SshKey,
+                config=ConfigLayout)
+        async def copy_in_carthage(self, ainjector, config, ssh_key):
+            host = self.host
+            project_destination = Path(host.model.project_destination)
+            await host.ssh("mkdir", "-p", str(project_destination), _bg=True, _bg_exc=False)
+            await host.ssh("mkdir", "-p", config.checkout_dir, _bg=True, _bg_exc=False)
+            await ainjector(
+                rsync_git_tree,
+                os.path.dirname(carthage.__file__),
+                RsyncPath(host, project_destination/"carthage"))
+            if hasattr(host.model, 'layout_source'):
+                await ainjector(
+                    rsync_git_tree,
+                    host.model.layout_source,
+                    RsyncPath(host, project_destination/host.model.layout_destination))
+            if host.model.copy_in_checkouts:
+                checkout_dir = config.checkout_dir
+                await ainjector(
+                    ssh_key.rsync,
+                    "-a",
+                    "--delete",
+                    f'{checkout_dir}/',
+                    RsyncPath(host, checkout_dir))
+                
+        libvirt_server_role = ansible_role_task('libvirt-server')
+
+__all__ += ['CarthageServerRole']
