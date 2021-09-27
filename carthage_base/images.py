@@ -44,8 +44,9 @@ __all__ += ['DebianImage']
 async def debian_vm_image(ainjector, image):
     return await ainjector(
         debian_container_to_vm,
-        image, "debian-base.raw",
+        image, f"{image.name}.raw",
         "10G",
         classes = "+SERIAL,CLOUD_INIT,OPENROOT")
 
 __all__ += ['debian_vm_image']
+
