@@ -18,7 +18,11 @@ from carthage import *
 from carthage import sh
 from carthage.modeling import *
 from carthage.ansible import *
+from hadron.carthage.tasks import *
+from hadron.carthage.images import HadronImageMixin
 from pathlib import Path
+
+from .images import DebianImage
 
 @inject(config = ConfigLayout)
 class UsefulVars(AnsibleGroupPlugin):
@@ -101,3 +105,24 @@ class AcesMachine(MachineModel, template = True):
             tasks_from = 'distribution.yml'))
 
 __all__ = ['AcesIntegration', 'AcesMachine']
+
+class AcesCustomizations( HadronImageMixin):
+
+    @setup_task("re-enable systemd-networkd and systemd-resolved")
+    async def enable_systemd_services(self):
+        await self.container_command(
+            "/bin/systemctl", "enable",
+            "systemd-networkd", "systemd-networkd.socket",
+            "systemd-resolved")
+        try:
+            await self.container_command("/usr/bin/apt", "-y", "purge", "haveged")
+        except: pass
+
+
+class AcesBaseImage(DebianImage):
+
+    name = "base-aces"
+    
+    aces_customizations = customization_task(AcesCustomizations)
+
+__all__ += ['AcesBaseImage']
