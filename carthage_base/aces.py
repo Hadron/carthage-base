@@ -18,6 +18,7 @@ from carthage import *
 from carthage import sh
 from carthage.modeling import *
 from carthage.ansible import *
+from carthage.utils import memoproperty
 from hadron.carthage.tasks import *
 from hadron.carthage.images import HadronImageMixin
 from pathlib import Path
@@ -99,6 +100,9 @@ class AcesMachine(MachineModel, template = True):
 
     hadron_role = "debian"
 
+    @memoproperty
+    def role_names(self):
+        return (self.hadron_role,)
     class hadron_distribution_customization(MachineCustomization):
         aces_distribution = ansible_role_task(dict(
             name = "aces-base",
