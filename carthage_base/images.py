@@ -46,7 +46,7 @@ class DebianImageCustomization(ContainerCustomization):
         root = Path(self.path)
         try: root.joinpath("etc/resolv.conf").unlink()
         except FileNotFoundError: pass
-        root.joinpath("etc/resolv.conf").symlink_to("/usr/lib/systemd/resolv.conf")
+        root.joinpath("etc/resolv.conf").symlink_to("/run/systemd/resolved/stub-resolv.conf")
         
 class DebianImage(DebianContainerImage):
     ssh_authorization = customization_task(carthage.image.SshAuthorizedKeyCustomizations)
