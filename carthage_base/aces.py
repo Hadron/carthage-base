@@ -41,7 +41,7 @@ class UsefulVars(AnsibleGroupPlugin):
 
     async def groups_for(self, m):
         return []
-    
+
 class AcesIntegration(ModelTasks):
 
 
@@ -50,8 +50,9 @@ class AcesIntegration(ModelTasks):
         aces_root = Path("/usr/share/ca-certificates/aces/hadron_vault_root.crt")
         if not aces_root.exists(): raise SkipSetupTask
         output_dir = Path(self.config_layout.output_dir)
+        os.makedirs(output_dir, exist_ok=True)
         output_dir.joinpath("vpn_ca.pem").write_text(aces_root.read_text())
-    
+
     @setup_task("make download")
     async def make_download(self):
         repo_path = Path(self.config_layout.checkout_dir)/"hadron-operations"
@@ -59,7 +60,7 @@ class AcesIntegration(ModelTasks):
         os.makedirs(self.stamp_path, exist_ok=True)
         try: stamp_path.joinpath("packages").symlink_to(repo_path/"ansible/packages")
         except FileExistsError: pass
-        try: repo_path.joinpath("ansible/output").symlink_to(self.config_layout.output_dir)
+        try: stamp_path.joinpath('output').symlink_to(repo_path/"ansible/output")
         except FileExistsError: pass
         try:         stamp_path.joinpath("output").symlink_to(self.config_layout.output_dir)
         except FileExistsError: pass
@@ -108,6 +109,13 @@ class AcesMachine(MachineModel, template = True):
             name = "aces-base",
             tasks_from = 'distribution.yml'))
 
+        @setup_task("Remove debian.list")
+        async def remove_debian_list(self):
+            async with self.filesystem_access() as root:
+                try: os.unlink(Path(root)/"etc/apt/sources.list.d/debian.list")
+                except FileNotFoundError: pass
+
+
 __all__ = ['AcesIntegration', 'AcesMachine']
 
 class AcesCustomizations( HadronImageMixin):
@@ -126,7 +134,7 @@ class AcesCustomizations( HadronImageMixin):
 class AcesBaseImage(DebianImage):
 
     name = "base-aces"
-    
+
     aces_customizations = customization_task(AcesCustomizations)
 
 __all__ += ['AcesBaseImage']
