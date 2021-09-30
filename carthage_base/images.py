@@ -11,6 +11,7 @@ import carthage
 from carthage.debian import *
 from carthage.vm import vm_image
 from carthage.systemd import SystemdNetworkModelMixin
+from pathlib import Path
 
 __all__ = []
 
@@ -32,9 +33,25 @@ class LinuxMachine(MachineModel, SystemdNetworkModelMixin, template=True):
 
 __all__ += ['LinuxMachine']
 
+class DebianImageCustomization(ContainerCustomization):
+    description = "Customizations for Debian Images"
+
+    install_packages = install_stage1_packages_task([
+        'git', 'emacs-nox', 'ansible', 'rsync',
+        'libnss-resolve',
+        'mailutils-'])
+
+    @setup_task("Use systemd-resolved for name service")
+    def use_systemd_resolved(self):
+        root = Path(self.path)
+        try: root.joinpath("etc/resolv.conf").unlink()
+        except FileNotFoundError: pass
+        root.joinpath("etc/resolv.conf").symlink_to("/usr/lib/systemd/resolv.conf")
+        
 class DebianImage(DebianContainerImage):
     ssh_authorization = customization_task(carthage.image.SshAuthorizedKeyCustomizations)
-    install_packages = wrap_container_customization(install_stage1_packages_task(['git', 'emacs-nox', 'ansible', 'rsync', 'mailutils-']))
+    debian_image_customizations = customization_task(DebianImageCustomization)
+    
 
 __all__ += ['DebianImage']
 

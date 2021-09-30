@@ -32,6 +32,8 @@ class DhcpRole(MachineModel, template = True):
                            _bg = True,
                            _bg_exc = False)
             async with self.filesystem_access() as path:
+                try: Path(path).joinpath("etc/resolv.conf").unlink()
+                except FileNotFoundError: pass
                 with                                     Path(path).joinpath("etc/resolv.conf").open("wt") as f:
                     f.write("nameserver 127.0.0.1\n")
 
