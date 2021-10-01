@@ -64,7 +64,7 @@ async def debian_vm_image(ainjector, image):
         debian_container_to_vm,
         image, f"{image.name}.raw",
         "10G",
-        classes = "+SERIAL,CLOUD_INIT,OPENROOT")
+        classes = "+SERIAL,CLOUD_INIT,GROW,OPENROOT")
 
 __all__ += ['debian_vm_image']
 
