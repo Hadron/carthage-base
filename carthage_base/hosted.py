@@ -15,16 +15,19 @@ from carthage.machine import BareMetalMachine
 __all__ = []
 
 @inject(host = InjectionKey("host"),
+        injector=Injector
         )
 class HostedMachine(Injectable):
 
-    def __new__(cls, *, host):
-        if cls.is_locally_hosted(host):
+    def __new__(cls, *, host, injector):
+        config = injector.get_instance(ConfigLayout)
+        if cls.is_locally_hosted(host,config):
             return cls.implementation
         return BareMetalMachine
 
     @classmethod
-    def is_locally_hosted(cls, host):
+    def is_locally_hosted(cls, host, config):
+        if config.locally_hosted: return host in config.locally_hosted
         return host == socket.getfqdn()
 
 class HostedContainer(HostedMachine):
