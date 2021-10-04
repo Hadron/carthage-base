@@ -34,9 +34,11 @@ class UsefulVars(AnsibleGroupPlugin):
         config = self.config
         import urllib.parse
         url = urllib.parse.urlparse(config.debian.mirror)
-        vars = {}
+        vars = {
+            'hadron_vault_addr': 'https://vault.hadronindustries.com:8200/'}
         if url.path =="/debian":
             vars['debian_mirror'] = url.netloc
+        
         return dict(all = dict(vars = vars))
 
     async def groups_for(self, m):
@@ -94,9 +96,9 @@ class AcesMachine(MachineModel, template = True):
         try: self.network.domain
         except AttributeError: self.network.domain = self.injector.get_instance(InjectionKey("domain"))
         slot =  hadron.carthage.fake_slot_for_model(self, netid = 1, role =self.hadron_role)
-        slot.os = "Debian"
-        slot.release = "bullseye"
-        slot.track = "snapshot"
+        slot.os = getattr(self,'hadron_os',"Debian")
+        slot.release = getattr(self, 'hadron_release', "bullseye")
+        slot.track = getattr(self, 'hadron_track', "snapshot")
         return slot
 
     hadron_role = "debian"
