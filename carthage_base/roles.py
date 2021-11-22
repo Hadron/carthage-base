@@ -27,10 +27,10 @@ class DhcpRole(MachineModel, template = True):
 
         @setup_task("install software")
         async def install_software(self):
-            await self.ssh("systemctl disable --now systemd-resolved", _bg = True, _bg_exc = False)
             await self.ssh("apt -y install dnsmasq",
                            _bg = True,
                            _bg_exc = False)
+            await self.ssh("systemctl disable --now systemd-resolved", _bg = True, _bg_exc = False)
             async with self.filesystem_access() as path:
                 try: Path(path).joinpath("etc/resolv.conf").unlink()
                 except FileNotFoundError: pass
