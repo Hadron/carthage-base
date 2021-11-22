@@ -13,6 +13,7 @@ from carthage.debian import *
 from carthage.vm import vm_image
 from carthage.systemd import SystemdNetworkModelMixin
 from pathlib import Path
+from carthage import debian
 
 __all__ = []
 
@@ -49,12 +50,35 @@ class DebianImageCustomization(ContainerCustomization):
         except FileNotFoundError: pass
         shutil.copy(root/"usr/lib/systemd/resolv.conf", root/"etc")
         
+class DebianMirrorTracker(FilesystemCustomization):
+
+    @setup_task("Update mirror")
+    async def update_mirror(self):
+        config = self.injector(ConfigLayout)
+        mirror = config.debian
+        debian.update_mirror(self.path, mirror.mirror, mirror.distribution, mirror.include_security)
+        await self.run_command('apt', 'update')
+
+    @update_mirror.hash()
+    def update_mirror(self):
+        config = self.injector(ConfigLayout)
+        mirror = config.debian
+        return str({
+            'mirror': mirror.mirror,
+            'distribution':mirror.distribution,
+            'include_security':mirror.include_security,
+            })
+
+__all__ += ['DebianMirrorTracker']
+
 class DebianImage(DebianContainerImage):
     ssh_authorization = customization_task(carthage.image.SshAuthorizedKeyCustomizations)
     debian_image_customizations = customization_task(DebianImageCustomization)
+    mirror_tracking = customization_task(DebianMirrorTracker)
     
-
 __all__ += ['DebianImage']
+
+         
 
 @provides(vm_image)
 @inject(ainjector = AsyncInjector,

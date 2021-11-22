@@ -135,6 +135,9 @@ class AcesCustomizations( HadronImageMixin):
 
 class AcesBaseImage(DebianImage):
 
+    '''A base image set up to access hadron proprietary packages with minimal Hadron packages installed.
+'''
+
     name = "base-aces"
 
     aces_customizations = customization_task(AcesCustomizations)
