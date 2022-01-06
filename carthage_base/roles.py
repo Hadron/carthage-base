@@ -1,4 +1,4 @@
-# Copyright (C) 2018, 2019, 2020, 2021, Hadron Industries, Inc.
+# Copyright (C) 2018, 2019, 2020, 2021, 2022, Hadron Industries, Inc.
 # Carthage is free software; you can redistribute it and/or modify
 # it under the terms of the GNU Lesser General Public License version 3
 # as published by the Free Software Foundation. It is distributed
@@ -6,12 +6,14 @@
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the file
 # LICENSE for details.
 import os.path
+from pathlib import Path
 import carthage
+import carthage.systemd
 from carthage import *
 from carthage.modeling import *
 from carthage.ssh import SshKey
 from carthage.ansible import *
-from pathlib import Path
+from carthage.sonic import SonicNetworkModelMixin
 
 __all__ = []
 
@@ -53,8 +55,8 @@ __all__ += ['DhcpRole']
 class CarthageServerRole(MachineModel, template = True):
 
     project_destination = "/"
+
     #: If true (the default), then checkout_dir is synchronized to the destination
-    
     copy_in_checkouts = True
 
     class customize_for_carthage(MachineCustomization):
@@ -89,3 +91,20 @@ class CarthageServerRole(MachineModel, template = True):
         libvirt_server_role = ansible_role_task('libvirt-server')
 
 __all__ += ['CarthageServerRole']
+
+@inject(authorized_keys=carthage.ssh.AuthorizedKeysFile)
+class SonicMachineMixin(Machine, SetupTaskMixin):
+
+        
+    # We cannot just use a CustomizationTask in the model because we
+    # need to force this role to be very early
+    
+    sonic_role = ansible_role_task(
+        "sonic_config",
+        before=carthage.systemd.SystemdNetworkInstallMixin.generate_config_dependency)
+    
+class SonicRole(SonicNetworkModelMixin, MachineModel, template=True):
+
+    add_provider(InjectionKey(MachineMixin, name="sonic"), dependency_quote(SonicMachineMixin))
+
+__all__ += ['SonicRole']

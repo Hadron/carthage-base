@@ -1,0 +1,21 @@
+- file: path=~/.ssh state=directory
+  remote_user: admin
+  vars:
+    ansible_ssh_password: YourPaSsWoRd
+- copy:
+    dest: ~/.ssh/authorized_keys
+    src: '{{config.state_dir}}/authorized_keys'
+  remote_user: admin
+  vars:
+    ansible_ssh_password: YourPaSsWoRd
+- file: path=/root/.ssh state=directory
+  become: yes
+  become_method: sudo
+  remote_user: admin
+- copy:
+    dest: /root/.ssh/authorized_keys
+    src: '{{config.state_dir}}/authorized_keys'
+  become: yes
+  become_method: sudo
+  remote_user: admin
+- apt: name=emacs-nox state=present install_recommends=no
