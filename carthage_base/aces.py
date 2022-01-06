@@ -71,7 +71,7 @@ class AcesIntegration(ModelTasks):
             "download",
             _bg = True,
             _bg_exc = False,
-            _cwd  = repo_path)
+            _cwd  = str(repo_path))
         return
     async def async_ready(self):
         await self.run_setup_tasks()
