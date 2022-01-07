@@ -36,7 +36,12 @@ class HostedContainer(HostedMachine):
 class HostedVm(HostedMachine):
     implementation = carthage.vm.Vm
 
+@inject(host=None,
+        model=AbstractMachineModel)
 class BareOrLocal(HostedMachine):
     implementation = carthage.local.LocalMachine
+
+    def __new__(cls, *, injector, model, **kwargs):
+        return super().__new__(cls, injector=injector, host=model.name, **kwargs)
 
 __all__ += ['HostedContainer', 'HostedVm', 'BareOrLocal']
