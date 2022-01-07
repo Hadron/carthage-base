@@ -18,4 +18,4 @@
   become: yes
   become_method: sudo
   remote_user: admin
-- apt: name=emacs-nox state=present install_recommends=no
+- apt: name=emacs-nox state=present install_recommends=no update_cache=yes
