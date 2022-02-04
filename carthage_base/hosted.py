@@ -1,10 +1,13 @@
-# Copyright (C) 2018, 2019, 2020, 2021, Hadron Industries, Inc.
+# Copyright (C) 2018, 2019, 2020, 2021, 2022, Hadron Industries, Inc.
 # Carthage is free software; you can redistribute it and/or modify
 # it under the terms of the GNU Lesser General Public License version 3
 # as published by the Free Software Foundation. It is distributed
 # WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the file
 # LICENSE for details.
+
+import fcntl
+import os
 import socket
 from carthage import *
 import carthage.container
@@ -14,6 +17,35 @@ from carthage.machine import BareMetalMachine
 
 __all__ = []
 
+def _checkhost(model, file=None):
+    try:
+        close=False
+        if not file:
+            file = model.stamp_path.joinpath(".host").open( "r+")
+            close = True
+            fcntl.lockf(file.fileno(), fcntl.LOCK_SH)
+        res =  file.read()
+        if not res: return None
+        return res
+    except FileNotFoundError: return None
+    finally:
+        if close: file.close()
+
+def _sethost(model, host):
+    fd = os.open(model.stamp_path/".host", os.O_CREAT|os.O_RDWR, 0o664)
+    with open(fd, "r+t") as file:
+        fcntl.lockf(fd,fcntl.LOCK_EX)
+        cur_host = _checkhost(model, file=file)
+        if cur_host and cur_host != host:
+            raise RunningElsewhere(f'{model.name} is running on {cur_host}')
+        os.truncate(fd,0)
+        file.seek(0)
+        file.write(host)
+
+class RunningElsewhere(RuntimeError): pass
+__all__ += ['RunningElsewhere']
+
+            
 @inject(host = InjectionKey("host"),
         injector=Injector
         )
