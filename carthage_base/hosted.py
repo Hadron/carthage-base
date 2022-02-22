@@ -73,10 +73,10 @@ class HostedMachine(Injectable):
         if model and getattr(model, 'force_locally_hosted', False): return True
         if model:
             cur_host = _checkhost(model)
-            if cur_host: return cur_host == socket.getfqdn()
+            if cur_host: return cur_host == socket.gethostname()
         if config.locally_hosted and  host in config.locally_hosted: return True
         if (not config.locally_hosted) or 'localhost' in config.locally_hosted:
-            return host == socket.getfqdn()
+            return host == socket.gethostname()
         return False
 
     def __init_subclass__(cls, *args, **kwargs):
@@ -88,7 +88,7 @@ class HostedMachine(Injectable):
 
 class HostedTrackerMixin(Machine):
     async def start_machine(self, **kwargs):
-        _sethost(self.model, socket.getfqdn())
+        _sethost(self.model, socket.gethostname())
         return await super().start_machine(**kwargs)
 
     async def stop_machine(self):
