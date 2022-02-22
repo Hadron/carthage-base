@@ -52,14 +52,16 @@ class DebianImageCustomization(ContainerCustomization):
         
 class DebianMirrorTracker(FilesystemCustomization):
 
+    description="Track updates to configured mirror"
+
     @setup_task("Update mirror")
-    async def update_mirror(self):
+    async def update_mirror_tracker(self):
         config = self.injector(ConfigLayout)
         mirror = config.debian
         debian.update_mirror(self.path, mirror.mirror, mirror.distribution, mirror.include_security)
         await self.run_command('apt', 'update')
 
-    @update_mirror.hash()
+    @update_mirror_tracker.hash()
     def update_mirror(self):
         config = self.injector(ConfigLayout)
         mirror = config.debian
