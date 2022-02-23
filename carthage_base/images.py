@@ -62,7 +62,7 @@ class DebianMirrorTracker(FilesystemCustomization):
         await self.run_command('apt', 'update')
 
     @update_mirror_tracker.hash()
-    def update_mirror(self):
+    def update_mirror_tracker(self):
         config = self.injector(ConfigLayout)
         mirror = config.debian
         return str({
