@@ -69,6 +69,9 @@ class CarthageServerRole(MachineModel, template = True):
             host = self.host
             project_destination = Path(host.model.project_destination)
             await host.ssh("mkdir", "-p", str(project_destination), _bg=True, _bg_exc=False)
+            await host.ssh('apt update', _bg=True, _bg_exc=False)
+            await host.ssh('apt -y install rsync sshfs',
+                           _bg=True, _bg_exc=False)
             await host.ssh("mkdir", "-p", config.checkout_dir, _bg=True, _bg_exc=False)
             await ainjector(
                 rsync_git_tree,
