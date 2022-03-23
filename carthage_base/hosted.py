@@ -62,11 +62,13 @@ __all__ += ['RunningElsewhere']
         )
 class HostedMachine(Injectable):
 
+    remote_implementation = BareMetalMachine
+
     def __new__(cls, *, host, model, injector):
         config = injector.get_instance(ConfigLayout)
         if cls.is_locally_hosted(host,config, model):
             return cls.implementation
-        return BareMetalMachine
+        return cls.remote_implementation
 
     @classmethod
     def is_locally_hosted(cls, host, config, model):
