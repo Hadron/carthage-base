@@ -59,7 +59,12 @@ class CarthageServerRole(MachineModel, template = True):
     #: If true (the default), then checkout_dir is synchronized to the destination
     copy_in_checkouts = True
 
+    #:if True (the default), keep track of the git hashes of copied trees and copy again on change.
+    carthage_role_track_git_changes = True
+    
     class customize_for_carthage(MachineCustomization):
+
+        libvirt_server_role = ansible_role_task('libvirt-server')
 
         @setup_task("Copy in carthage and layout")
         @inject(ainjector=AsyncInjector,
@@ -90,8 +95,17 @@ class CarthageServerRole(MachineModel, template = True):
                     "--delete",
                     f'{checkout_dir}/',
                     RsyncPath(host, checkout_dir))
-                
-        libvirt_server_role = ansible_role_task('libvirt-server')
+
+        @copy_in_carthage.hash()
+        def copy_in_carthage(self):
+            if not self.model.carthage_role_track_git_changes: return ""
+            hashes = []
+            hashes.append(git_tree_hash(os.path.dirname(carthage.__file__)))
+            try:
+                hashes.append(git_tree_hash(self.model.layout_source))
+            except AttributeError: pass
+            return str(hashes)
+        
 
 __all__ += ['CarthageServerRole']
 
