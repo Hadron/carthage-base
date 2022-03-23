@@ -1,5 +1,9 @@
+- hostname: name={{inventory_hostname}}
 - name: install software
-  apt: name=nfs-common,libvirt-daemon-system,socat,systemd-container,ovmf,genisoimage,qemu-kvm,fai-setup-storage,sshfs,python3-yaml,python3-mako,python3-pyvmomi,python3-sh,python3-hvac,git,sshfs,dosfstools,genisoimage state=present
+  apt: name=nfs-common,libvirt-daemon-system,socat,systemd-container,ovmf,genisoimage,qemu-kvm,fai-setup-storage,sshfs,python3-yaml,python3-mako,python3-pyvmomi,python3-sh,git,sshfs,dosfstools,genisoimage state=present cache_valid_time=3600
+- apt: name=python3-hvac state=present
+  name: Install python3-hvac (may be absent)
+  ignore_errors: yes
 - name: install fai-server
   apt: install_recommends=no name=fai-server state=present
 - name: enable nested virtualization
