@@ -62,7 +62,7 @@ class CarthageServerRole(MachineModel, template = True):
     #:if True (the default), keep track of the git hashes of copied trees and copy again on change.
     carthage_role_track_git_changes = True
     
-    class customize_for_carthage(MachineCustomization):
+    class customize_for_carthage(FilesystemCustomization):
 
         libvirt_server_role = ansible_role_task('libvirt-server')
 
@@ -73,11 +73,11 @@ class CarthageServerRole(MachineModel, template = True):
         async def copy_in_carthage(self, ainjector, config, ssh_key):
             host = self.host
             project_destination = Path(host.model.project_destination)
-            await host.ssh("mkdir", "-p", str(project_destination), _bg=True, _bg_exc=False)
-            await host.ssh('apt update', _bg=True, _bg_exc=False)
-            await host.ssh('apt -y install rsync sshfs',
+            await self.run_command("mkdir", "-p", str(project_destination), _bg=True, _bg_exc=False)
+            await self.run_command('apt', 'update', _bg=True, _bg_exc=False)
+            await self.run_command("apt", *'-y install rsync sshfs'.split(),
                            _bg=True, _bg_exc=False)
-            await host.ssh("mkdir", "-p", config.checkout_dir, _bg=True, _bg_exc=False)
+            await self.run_command("mkdir", "-p", config.checkout_dir, _bg=True, _bg_exc=False)
             await ainjector(
                 rsync_git_tree,
                 os.path.dirname(carthage.__file__),
