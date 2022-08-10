@@ -68,9 +68,8 @@ class CarthageServerRole(MachineModel, template = True):
 
         @setup_task("Copy in carthage and layout")
         @inject(ainjector=AsyncInjector,
-                ssh_key=SshKey,
                 config=ConfigLayout)
-        async def copy_in_carthage(self, ainjector, config, ssh_key):
+        async def copy_in_carthage(self, ainjector, config):
             host = self.host
             project_destination = Path(host.model.project_destination)
             await self.run_command("mkdir", "-p", str(project_destination), _bg=True, _bg_exc=False)
@@ -90,9 +89,10 @@ class CarthageServerRole(MachineModel, template = True):
             if host.model.copy_in_checkouts:
                 checkout_dir = config.checkout_dir
                 await ainjector(
-                    ssh_key.rsync,
+                    carthage.ssh.rsync,
                     "-a",
                     "--delete",
+                    '--safe-links',
                     f'{checkout_dir}/',
                     RsyncPath(host, checkout_dir))
 
