@@ -1,0 +1,3 @@
+- apt: name=strongswan-swanctl,charon-systemd state=present
+  name: Install strongswan IPsec server
+  

@@ -23,6 +23,8 @@ class CertificateAuthority(InjectableModel):
         raise NotImplementedError
 
 __all__ += ['CertificateAuthority']
+
+@inject(ca=InjectionKey(CertificateAuthority, _ready=True))
 class CertificateInstallationTask(carthage.setup_tasks.TaskWrapperBase):
 
     key_dir: Path
@@ -34,7 +36,9 @@ class CertificateInstallationTask(carthage.setup_tasks.TaskWrapperBase):
                  ca_path, cert_dir, key_dir,
                  stem=None,
                  **kwargs):
-        super().__init__(**kwargs)
+        super().__init__(
+            description=f'Install certificate to {ca_path}',
+        **kwargs)
         self.ca_path = relative_path(ca_path)
         self.cert_dir = relative_path(cert_dir)
         self.key_dir = relative_path(key_dir)
@@ -49,28 +53,29 @@ class CertificateInstallationTask(carthage.setup_tasks.TaskWrapperBase):
         return self.key_dir/self.stem
     
         
-    @inject(ca=InjectionKey(CertificateAuthority, _ready=True))
     async def func(self, instance, ca):
         dns_name = instance.name
         carthage.utils.validate_shell_safe(dns_name)
-        cust = await self.ainjector(FilesystemCustomization, inst)
+        cust = await instance.ainjector(FilesystemCustomization, instance)
         async with cust.customization_context:
             key, cert = await ca.certify(dns_name)
+            ca_pem = await ca.ca_cert_pem()
             if not self.stem: self.stem = f'{dns_name}.pem'
             cert_dir = cust.path/self.cert_dir
             key_dir = cust.path/self.key_dir
             key_dir.mkdir(mode=0o700, exist_ok=True, parents=True)
             cert_dir.mkdir(mode=0o755, exist_ok=True, parents=True)
+            cust.path.joinpath(self.ca_path).write_text(ca_pem)
             cust.path.joinpath(self.key_fn).write_text(key)
             cust.path.joinpath(self.cert_fn).write_text(cert)
 
     async def check_completed_func(self, instance):
         try:
-            cust = await self.ainjector(FilesystemCustomization, instance)
+            cust = await instance.ainjector(FilesystemCustomization, instance)
             async with cust.customization_context:
                 if not self.stem: self.stem = f'{instance.name}.pem'
                 stat = cust.path.joinpath(self.cert_fn).stat()
-                return st.st_mtime
+                return stat.st_mtime
         except FileNotFoundError: return False
         except Exception:
             #Also return False, although perhaps we should log debugging info.  This can be a normal condition if a machine does not yet exist.
@@ -119,7 +124,7 @@ class EntanglementCertificateAuthority(CertificateAuthority, MachineModel, templ
                 '--pki-dir='+str(self.pki_dir),
                 '--ca-name='+self.ca_name,
                 dns_name)
-            return pki_dir.joinpath(dns_name+'.key').read_bytes(), \
-                pki_dir.joinpath(dns_name+'.pem').read_bytes()
+            return pki_dir.joinpath(dns_name+'.key').read_text(), \
+                pki_dir.joinpath(dns_name+'.pem').read_text()
 
 __all__ += ['EntanglementCertificateAuthority']

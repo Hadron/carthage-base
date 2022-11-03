@@ -7,6 +7,7 @@
 # LICENSE for details.
 import os.path
 from pathlib import Path
+import types
 import carthage
 import carthage.systemd
 from carthage import *
@@ -14,6 +15,7 @@ from carthage.modeling import *
 from carthage.ssh import SshKey
 from carthage.ansible import *
 from carthage.sonic import SonicNetworkModelMixin
+from .pki import CertificateInstallationTask
 
 __all__ = []
 
@@ -86,7 +88,7 @@ class CarthageServerRole(MachineModel, template = True):
                     rsync_git_tree,
                     host.model.layout_source,
                     RsyncPath(host, project_destination/host.model.layout_destination))
-            if host.model.copy_in_checkouts:
+            if host.model.copy_in_checkouts and Path(config.checkout_dir).exists():
                 checkout_dir = config.checkout_dir
                 await ainjector(
                     carthage.ssh.rsync,
@@ -125,3 +127,170 @@ class SonicRole(SonicNetworkModelMixin, MachineModel, template=True):
     add_provider(InjectionKey(MachineMixin, name="sonic"), dependency_quote(SonicMachineMixin))
 
 __all__ += ['SonicRole']
+
+class StrongswanGatewayRole(MachineModel, template=True):
+
+    connections_mako = mako_task(
+        'strongswan-connections.mako',
+        output='etc/swanctl/conf.d/carthage.conf',
+        peers=InjectionKey("strongswan/peers"))
+
+    @provides(InjectionKey("strongswan/peers"))
+    @inject(self=AbstractMachineModel)
+    async def strongswan_peers(self):
+        def remote_addr(m):
+            try: return m.ip_address
+            except (NotImplementedError, AttributeError): return None
+        results = []
+        for k, model in await self.ainjector.filter_instantiate_async(
+                StrongswanGatewayRole, ['host'],
+                ready=False):
+            if model is self: continue
+            results.append(types.SimpleNamespace(
+                identity=model.name,
+                remote_addr=remote_addr(model),
+                remote_ts=model.child_ts,
+                ))
+        return results
+        def __init_subclass__(cls, template=False, **kwargs):
+            super().__init_subclass(template=template, **kwargs)
+            if not template:
+                globall_unique_key(InjectionKey(StrongswanGatewayRole, host=cls.name))(cls)
+                
+    #: The xfrm interface id or None for inbound traffic
+    if_id_in = None
+
+    #: The xfrm interface ID or None for outbound traffic
+    if_id_out = None
+
+    #: Child traffic selectors
+    child_ts = '0.0.0.0/0'
+    
+    class ipsec_customization(FilesystemCustomization):
+
+        install_mako = install_mako_task('model')
+        install_cert = CertificateInstallationTask(
+            ca_path='/etc/swanctl/x509ca/carthage-ca.pem',
+            cert_dir='/etc/swanctl/x509',
+            key_dir='/etc/swanctl/rsa',
+            stem='strongswan-cert.pem',
+            )
+        
+
+        install_strongswan = ansible_role_task('install-strongswan')
+
+__all__ += ['StrongswanGatewayRole']
+
+class Bind9Role(MachineModel, template=True):
+
+    '''
+    The *zones* property is a sequence of dicts containing the following:
+
+    name
+        The name of the zone
+
+    type
+        primary|secondary
+
+    file
+        Name of file in which zone data is stored
+
+    update_keys
+        Name of keys that can dynamically update the zone
+
+    dnssec_policy
+        Set the dnssec policy for the zone
+
+'''
+
+    @property
+    def zones_ns(self):
+        return [types.SimpleNamespace(**z) for z in self.zones]
+
+    @memoproperty
+    def tsig_keys(self):
+        results = set()
+        for z in self.zones_ns:
+            for k in getattr(z, 'update_keys', []):
+                results.add(k)
+        return results
+
+    #: Directory for primary_zone data
+    primary_zone_dir = "/etc/bind/zones"
+    
+    named_conf_local = mako_task('named.conf.local.mako',
+                                 output='etc/bind/named.conf.local')
+
+    class dns_customization(FilesystemCustomization):
+
+        description = "Customize for dns server"
+
+        install_bind9 = ansible_role_task('install-bind9')
+
+        install_mako = install_mako_task('model')
+
+        @setup_task('Generate needed tsig keys')
+        async def generate_tsig_keys(self, invalidate=False):
+            key_path = self.path/"etc/bind"
+            for k in self.model.tsig_keys:
+                assert carthage.utils.validate_shell_safe(k)
+                this_key_path = key_path/f'{k}.key'
+                if invalidate or not this_key_path.exists():
+                    await self.run_command(
+                        'sh', '-c',
+                        f'tsig-keygen {k} >/etc/bind/{k}.key'
+                        )
+                    await self.run_command(
+                        'chown', 'bind',
+                        f'/etc/bind/{k}.key')
+                    await self.run_command(
+                        'chmod', '600',
+                        f'/etc/bind/{k}.key')
+
+        @generate_tsig_keys.check_completed()
+        async def generate_tsig_keys(self):
+            # We do not return last_run because rerunning the task is not guaranteed to change stat times on the files
+            async with self.host.filesystem_access() as path:
+                key_path = path/"etc/bind"
+                for k in self.model.tsig_keys:
+                    if not key_path.joinpath(f'{k}.key').exists():
+                        return False
+            return True
+
+        @setup_task("Gather tsig keys for model")
+        async def gather_tsig_keys(self):
+            key_dir = self.path/"etc/bind"
+            model_key_dir = self.model.stamp_path/"tsig_keys"
+            model_key_dir.mkdir(mode=0o700, exist_ok=True)
+            for k in self.model.tsig_keys:
+                key_stem = f'{k}.key'
+                model_key = model_key_dir/key_stem
+                key_path = key_dir/key_stem
+                model_key.touch(mode=0o600)
+                model_key.write_text(key_path.read_text())
+
+        @gather_tsig_keys.check_completed()
+        async def gather_tsig_keys(self):
+            last = 0.0
+            async with self.host.filesystem_access() as path:
+                key_path = path/"etc/bind"
+                model_key_path = self.model.stamp_path/"tsig_keys"
+                if not model_key_path.exists(): return False
+                for k in self.model.tsig_keys:
+                    key_stem = f'{k}.key'
+                    try: model_stat = model_key_path.joinpath(key_stem).stat()
+                    except FileNotFoundError: return False
+                    stat = key_path.joinpath(key_stem).stat()
+                    if stat.st_mtime > model_stat.st_mtime:
+                        return False
+                    if model_stat.st_mtime > last:
+                        last = model_stat.st_mtime
+            return last
+        
+
+        @setup_task('reload bind')
+        async def reload_bind(self):
+            await self.run_command('rndc', 'reconfig')
+            await self.run_command('rndc', 'reload')
+
+__all__ += ['Bind9Role']

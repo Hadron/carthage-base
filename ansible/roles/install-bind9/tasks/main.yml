@@ -1,0 +1,2 @@
+- apt: name=bind9,dnsutils state=present install_recommends=no
+  name: install bind9
