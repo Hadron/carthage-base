@@ -221,6 +221,22 @@ class Bind9Role(MachineModel, template=True):
     named_conf_local = mako_task('named.conf.local.mako',
                                  output='etc/bind/named.conf.local')
 
+    def key_path(self, key):
+        return self.stamp_path/f'tsig_keys/{key}.key'
+
+    def __init_subclass__(cls, **kwargs):
+        from .dns import Bind9DnsZone
+        from carthage.modeling.implementation import add_provider_after
+        super().__init_subclass__(**kwargs)
+
+        try: cls.zones
+        except AttributeError: return
+        for z in cls.zones_ns:
+            if hasattr(z, 'update_keys'):
+                add_provider_after(cls,
+                                   InjectionKey(DnsZone, name=z.name, _globally_unique=True),
+                                   when_needed(Bind9DnsZone, name=z.name))
+                
     class dns_customization(FilesystemCustomization):
 
         description = "Customize for dns server"
