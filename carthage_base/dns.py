@@ -5,6 +5,8 @@
 # WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the file
 # LICENSE for details.
+import collections.abc
+from carthage import sh
 from carthage.dependency_injection import *
 from carthage.modeling import *
 from carthage import AbstractMachineModel, DnsZone
@@ -27,26 +29,26 @@ class Bind9DnsZone(InjectableModel, DnsZone):
             raise ValueError('Instantiating a zone without update_keys does not make sense')
         self.zone_info = zone_info
 
-        async def async_ready(self):
-            await self.model.machine.async_become_ready()
-            return await super().async_ready()
 
-    async def update_records(*args, ttl=300):
+    async def update_records(self, *args, ttl=300):
         await self.async_become_ready()
+        await self.model.machine.async_become_ready()
+        if not self.model.machine.running: await self.model.machine.start_machine()
         key_path = self.model.key_path(self.zone_info.update_keys[0])
         update = f"zone {self.name}\n"
         for a in args:
             assert isinstance(a, collections.abc.Sequence), "Each update must be a Sequence"
             name, rrtype, values = a
-            if not isinstance(values, collections.abc.Sequence):
-                values = tuple(values)
+            if ( not isinstance(values, collections.abc.Sequence)) or isinstance(values, str):
+                values = (values,)
             if not self.contains(name):
                 raise ValueError(f'{name} not in {self.name} zone')
             if not name.endswith('.'): name += '.'
-            update += "del {name} IN {rrtype}\n"
+            update += f"del {name} IN {rrtype}\n"
             for v in values:
-                update += "add {name} {ttl} IN {rrtype} {v}\n"
+                update += f"add {name} {ttl} IN {rrtype} {v}\n"
         update += "send\n"
+        print(update)
         await sh.nsupdate('-k', key_path,
                           _in=update,
                           _bg=True, _bg_exc=False)

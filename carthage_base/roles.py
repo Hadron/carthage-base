@@ -233,11 +233,12 @@ class Bind9Role(MachineModel, template=True):
 
         try: cls.zones
         except AttributeError: return
-        for z in cls.zones_ns:
-            if hasattr(z, 'update_keys'):
+        for z in cls.zones:
+            if 'update_keys' in z:
                 add_provider_after(cls,
-                                   InjectionKey(DnsZone, name=z.name, _globally_unique=True),
-                                   when_needed(Bind9DnsZone, name=z.name))
+                                   InjectionKey(DnsZone, name=z['name'], _globally_unique=True),
+                                   when_needed(Bind9DnsZone, name=z['name']),
+                                   propagate=True)
                 
     class dns_customization(FilesystemCustomization):
 
