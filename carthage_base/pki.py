@@ -65,6 +65,7 @@ class CertificateInstallationTask(carthage.setup_tasks.TaskWrapperBase):
             key_dir = cust.path/self.key_dir
             key_dir.mkdir(mode=0o700, exist_ok=True, parents=True)
             cert_dir.mkdir(mode=0o755, exist_ok=True, parents=True)
+            cust.path.joinpath(self.ca_path).parent.mkdir(exist_ok=True)
             cust.path.joinpath(self.ca_path).write_text(ca_pem)
             cust.path.joinpath(self.key_fn).write_text(key)
             cust.path.joinpath(self.cert_fn).write_text(cert)
@@ -91,18 +92,23 @@ class EntanglementCertificateAuthority(CertificateAuthority, MachineModel, templ
         description = "Set up entanglement-pki"
         entanglement_pki_role = ansible_role_task('install-entanglement-pki')
 
+
+    #: Where in the machine filesystem are certs and keys stored?
     pki_dir = '/etc/pki'
+    #: If non-none, access pki_dir via this (potentially absolute) path.  If ca is a container, and pki_dir is mounted from the host, pki_access_dir may need to be set.
+    pki_access_dir = None
     ca_name = 'Root CA'
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.pki_dir = relative_path(self.__class__.pki_dir)
+        # It's important that self.pki_access_dir not be relative pathed.
     async def ca_cert_pem(self):
         machine = self.machine
         await machine.async_become_ready()
         cust = await machine.ainjector(FilesystemCustomization, machine)
         async with cust.customization_context:
-            pki_dir = cust.path.joinpath(self.pki_dir)
+            pki_dir = cust.path.joinpath(self.pki_access_dir or self.pki_dir)
             try: return pki_dir.joinpath('ca.pem').read_text()
             except FileNotFoundError:
                 await cust.run_command(
@@ -116,7 +122,7 @@ class EntanglementCertificateAuthority(CertificateAuthority, MachineModel, templ
         await machine.async_become_ready()
         cust = await machine.ainjector(FilesystemCustomization, machine)
         async with cust.customization_context:
-            pki_dir = cust.path/self.pki_dir
+            pki_dir = cust.path.joinpath(self.pki_access_dir or self.pki_dir)
             pki_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
             await cust.run_command(
                 'entanglement-pki',

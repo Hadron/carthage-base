@@ -73,6 +73,7 @@ class CarthageServerRole(MachineModel, template = True):
                 config=ConfigLayout)
         async def copy_in_carthage(self, ainjector, config):
             host = self.host
+            if isinstance(host, LocalMachine): raise SkipSetupTask
             project_destination = Path(host.model.project_destination)
             await self.run_command("mkdir", "-p", str(project_destination), _bg=True, _bg_exc=False)
             await self.run_command('apt', 'update', _bg=True, _bg_exc=False)
@@ -152,10 +153,11 @@ class StrongswanGatewayRole(MachineModel, template=True):
                 remote_ts=model.child_ts,
                 ))
         return results
-        def __init_subclass__(cls, template=False, **kwargs):
-            super().__init_subclass(template=template, **kwargs)
-            if not template:
-                globall_unique_key(InjectionKey(StrongswanGatewayRole, host=cls.name))(cls)
+
+    def __init_subclass__(cls, template=False, **kwargs):
+        super().__init_subclass__(template=template, **kwargs)
+        if not template:
+            globally_unique_key(InjectionKey(StrongswanGatewayRole, host=cls.name))(cls)
                 
     #: The xfrm interface id or None for inbound traffic
     if_id_in = None
@@ -173,7 +175,7 @@ class StrongswanGatewayRole(MachineModel, template=True):
             ca_path='/etc/swanctl/x509ca/carthage-ca.pem',
             cert_dir='/etc/swanctl/x509',
             key_dir='/etc/swanctl/rsa',
-            stem='strongswan-cert.pem',
+            stem='strongswan.pem',
             )
         
 

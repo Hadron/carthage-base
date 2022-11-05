@@ -15,7 +15,7 @@ connections {
         if_id_out = ${instance.if_id_out}
         %endif
         local {
-            certs = strongswan-cert.pem
+            certs = strongswan.pem
             id = ${instance.name}
         }
         remote {
