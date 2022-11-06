@@ -140,6 +140,7 @@ class StrongswanGatewayRole(MachineModel, template=True):
     @inject(self=AbstractMachineModel)
     async def strongswan_peers(self):
         def remote_addr(m):
+            if hasattr(m, 'ipsec_address'): return m.ipsec_address
             try: return m.ip_address
             except (NotImplementedError, AttributeError): return None
         results = []

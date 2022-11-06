@@ -6,7 +6,7 @@ connections {
 %for peer in peers:
     ${adjust_id(peer.identity)} {
 %if peer.remote_addr:
-        remote_addrs = ${peer.remote_addr}
+        remote_addrs = ${peer.remote_addr}, %any
 %endif
         %if instance.if_id_in:
         if_id_in = ${instance.if_id_in}
