@@ -131,6 +131,8 @@ __all__ += ['SonicRole']
 
 class StrongswanGatewayRole(MachineModel, template=True):
 
+    #: If true, maintain trap policies for ipsec SAs; if 'start, actually start the SA on boot
+    ipsec_maintain_sas = True
     connections_mako = mako_task(
         'strongswan-connections.mako',
         output='etc/swanctl/conf.d/carthage.conf',

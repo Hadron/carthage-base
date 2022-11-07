@@ -25,6 +25,14 @@ connections {
             ${adjust_id(peer.identity)} {
                 local_ts = ${instance.child_ts}
                 remote_ts = ${peer.remote_ts}
+		%if getattr(instance, 'ipsec_updown', None):
+		updown = ${instance.ipsec_updown}
+		%endif
+		%if instance.ipsec_maintain_sas:
+		start_action = ${"start" if instance.ipsec_maintain_sas == "start" else "trap"}
+		dpd_action = trap
+		close_action = trap
+		%endif
             }
         }
     }
