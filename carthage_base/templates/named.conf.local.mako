@@ -19,6 +19,7 @@ zone "${z.name}" {
     %elif getattr(z,'file', None):
     file "${z.file}";
     %endif
+    key-directory "${primary_path}";
     %if getattr(z, 'update_keys', None):
     allow-update {
         %for k in z.update_keys:
