@@ -189,13 +189,22 @@ __all__ += ['StrongswanGatewayRole']
 class Bind9Role(MachineModel, template=True):
 
     '''
-    The *zones* property is a sequence of dicts containing the following:
+    The *zones* property is a mapping of zone name to  of dicts containing the following:
 
     name
         The name of the zone
 
     type
         primary|secondary
+
+    masters
+        For a secondary zone, where to find the primary
+
+    also_notify
+        Additional addresses to notify (expressed as a list)
+
+    allow_transfer
+        Addresses to accept transfers from
 
     file
         Name of file in which zone data is stored
@@ -206,23 +215,33 @@ class Bind9Role(MachineModel, template=True):
     dnssec_policy
         Set the dnssec policy for the zone
 
+
 '''
 
-    @property
+    @memoproperty
     def zones_ns(self):
-        return [types.SimpleNamespace(**z) for z in self.zones]
+        result = {}
+        for name, zone in self.zones.items():
+            for k in self.zone_options:
+                if k == 'masters' and zone['type'] == 'primary':
+                    continue
+                if k not in zone: zone[k] = self.zone_options[k]
+            result[name] = types.SimpleNamespace(**zone)
+        return result
 
     @memoproperty
     def tsig_keys(self):
         results = set()
-        for z in self.zones_ns:
+        for z in self.zones_ns.values():
             for k in getattr(z, 'update_keys', []):
                 results.add(k)
         return results
 
     #: Directory for primary_zone data
     primary_zone_dir = "/etc/bind/zones"
-    
+
+    #: A set of options to merge into every zone definition.  Options in the zone override.  Masters is always removed from primary zones.
+    zone_options = {}
     named_conf_local = mako_task('named.conf.local.mako',
                                  output='etc/bind/named.conf.local')
 
@@ -236,11 +255,11 @@ class Bind9Role(MachineModel, template=True):
 
         try: cls.zones
         except AttributeError: return
-        for z in cls.zones:
+        for name, z in cls.zones.items():
             if 'update_keys' in z:
                 add_provider_after(cls,
-                                   InjectionKey(DnsZone, name=z['name'], _globally_unique=True),
-                                   when_needed(Bind9DnsZone, name=z['name']),
+                                   InjectionKey(DnsZone, name=name, _globally_unique=True),
+                                   when_needed(Bind9DnsZone, name=name),
                                    propagate=True)
                 
     class dns_customization(FilesystemCustomization):

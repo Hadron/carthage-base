@@ -18,11 +18,7 @@ from carthage import AbstractMachineModel, DnsZone
 class Bind9DnsZone(InjectableModel, DnsZone):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        zone_info = None
-        for z in self.model.zones_ns:
-            if z.name == self.name:
-                zone_info = z
-                break
+        zone_info = self.model.zones_ns.get(self.name)
         if zone_info is None:
             raise ValueError(f'{self.model} does not define {self.name} as a DNS zone')
         if not getattr(zone_info, 'update_keys', None):
