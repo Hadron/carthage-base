@@ -32,6 +32,8 @@ class Bind9DnsZone(InjectableModel, DnsZone):
         if not self.model.machine.running: await self.model.machine.start_machine()
         key_path = self.model.key_path(self.zone_info.update_keys[0])
         update = f"zone {self.name}\n"
+        try: update += f'server {self.zone_info.update_server}\n'
+        except AttributeError: pass
         for a in args:
             assert isinstance(a, collections.abc.Sequence), "Each update must be a Sequence"
             name, rrtype, values = a
@@ -44,7 +46,7 @@ class Bind9DnsZone(InjectableModel, DnsZone):
             for v in values:
                 update += f"add {name} {ttl} IN {rrtype} {v}\n"
         update += "send\n"
-        print(update)
+
         await sh.nsupdate('-k', key_path,
                           _in=update,
                           _bg=True, _bg_exc=False)
