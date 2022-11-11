@@ -216,6 +216,12 @@ class Bind9Role(MachineModel, template=True):
         Set the dnssec policy for the zone
 
 
+    Also, the *named_options* mapping contains global options:
+
+    allow_recursion
+        A list of addresses to allow recursion from.
+
+
 '''
 
     @memoproperty
@@ -244,7 +250,11 @@ class Bind9Role(MachineModel, template=True):
     zone_options = {}
     named_conf_local = mako_task('named.conf.local.mako',
                                  output='etc/bind/named.conf.local')
+    named_conf_options = mako_task('named.conf.options.mako', output='etc/bind/named.conf.options')
+    
 
+    #: Global bind options
+    named_options = {}
     def key_path(self, key):
         return self.stamp_path/f'tsig_keys/{key}.key'
 
