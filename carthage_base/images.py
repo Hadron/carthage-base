@@ -46,6 +46,8 @@ class DebianImageCustomization(ContainerCustomization):
     @setup_task("Use systemd-resolved for name service")
     def use_systemd_resolved(self):
         root = Path(self.path)
+        if not root.joinpath("usr/bin/resolvectl").exists():
+            self.container_command('apt', '-y', 'install', 'systemd-resolved')
         try: root.joinpath("etc/resolv.conf").unlink()
         except FileNotFoundError: pass
         shutil.copy(root/"usr/lib/systemd/resolv.conf", root/"etc")
