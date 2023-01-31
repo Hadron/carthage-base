@@ -106,6 +106,19 @@ class AcesMachine(MachineModel, template = True):
     @memoproperty
     def role_names(self):
         return (self.hadron_role,)
+
+    def __init_subclass__(cls, **kwargs):
+        mro = cls.__mro__
+        aces_index = mro.index(AcesMachine)
+        from . import roles
+        for r_name in roles.__all__:
+            r = getattr(roles, r_name)
+            try: r_index = mro.index(r)
+            except ValueError: continue
+            if r_index > aces_index:
+                raise TypeError(f'AcesMachine should come later in the base class list than any Carthage Role so that the machine is converted to ACES before roles are applied.')
+        super().__init_subclass__(**kwargs)
+        
     class hadron_distribution_customization(MachineCustomization):
         aces_distribution = ansible_role_task(dict(
             name = "aces-base",
