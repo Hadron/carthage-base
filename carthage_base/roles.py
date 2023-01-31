@@ -54,7 +54,7 @@ class DhcpRole(MachineModel, template = True):
 
 __all__ += ['DhcpRole']
             
-class CarthageServerRole(MachineModel, template = True):
+class CarthageServerRole(ImageRole):
 
     project_destination = "/"
 
@@ -75,11 +75,10 @@ class CarthageServerRole(MachineModel, template = True):
             host = self.host
             if isinstance(host, LocalMachine): raise SkipSetupTask
             project_destination = Path(host.model.project_destination)
-            await self.run_command("mkdir", "-p", str(project_destination), _bg=True, _bg_exc=False)
-            await self.run_command('apt', 'update', _bg=True, _bg_exc=False)
-            await self.run_command("apt", *'-y install rsync sshfs'.split(),
-                           _bg=True, _bg_exc=False)
-            await self.run_command("mkdir", "-p", config.checkout_dir, _bg=True, _bg_exc=False)
+            await self.run_command("mkdir", "-p", str(project_destination))
+            await self.run_command('apt', 'update')
+            await self.run_command("apt", *'-y install rsync sshfs'.split())
+            await self.run_command("mkdir", "-p", config.checkout_dir)
             await ainjector(
                 rsync_git_tree,
                 os.path.dirname(carthage.__file__),
