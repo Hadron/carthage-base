@@ -10,14 +10,23 @@ import dataclasses
 import os
 from pathlib import Path
 from urllib.parse import urlparse
+import carthage.pki
 from carthage import *
 from carthage.modeling import *
 from carthage.utils import memoproperty
+from carthage.modeling.utils import setattr_default # xxx this should move somewhere more public
 from carthage.oci import *
 from carthage.podman import *
 
 __all__ = []
 
+@dataclasses.dataclass(frozen=True)
+class CertInfo:
+
+    cert_file: str
+    key_file: str
+    domains: tuple[str]
+    
 @dataclasses.dataclass(frozen=True)
 class ProxyService(InjectableModel):
 
@@ -53,6 +62,10 @@ class ProxyService(InjectableModel):
     def downstream_server(self):
         '''The server component of the downstream URL'''
         return self.downstream_url.netloc
+
+    @property
+    def downstream_proto(self):
+        return self.downstream_url.scheme
     
 __all__ += ['ProxyService']
 
@@ -61,21 +74,42 @@ class ProxyConfig(InjectableModel):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.services = {}
+        self.certificates = []
 
     def add_proxy_service(self, service:ProxyService):
         self.services[service.upstream] = service
 
+    def add_certificate(self, cert:CertInfo):
+        self.certificates = list(filter( lambda c: c.cert_file != cert.cert_file, self.certificates))
+        self.certificates.append(cert)
+        
     def by_downstream_server_path(self):
         result = {}
         for s in self.services.values():
-            result.setdefault(s.downstream_server, {})
-            result[s.downstream_server][s.downstream_url.path] = s
+            result.setdefault((s.downstream_proto,s.downstream_server), {})
+            result[(s.downstream_proto, s.downstream_server)][s.downstream_url.path] = s
         return result
+
+    def certs_by_server(self):
+        result = {}
+        for c in self.certificates:
+            for d in c.domains:
+                assert d not in result or result[d] is c, \
+                    f'Two different certificates cover {d}'
+                result[d] = c
+        return result
+
+    def ssl_servers(self):
+        return tuple(s for p, s in self.by_downstream_server_path() if p == 'https')
+
+    def ssl_certificates_needed(self):
+        return set(self.ssl_servers()) - set(self.certs_by_server())
     
+                    
         
 __all__ += ['ProxyConfig']
 
-class ProxyImage(ImageRole):
+class ProxyImageRole(ImageRole):
 
     class proxy_customizations(FilesystemCustomization):
 
@@ -85,9 +119,46 @@ class ProxyImage(ImageRole):
                 'apt', 'update')
             await self.run_command(
                 'apt', '-y', 'install', 'apache2')
-            await self.run_command('a2enmod', 'proxy')
+            await self.run_command('a2enmod', 'proxy', 'headers')
 
-class ProxyServerRole(MachineModel, ProxyImage, template=True):
+__all__ += ['ProxyImageRole']
+
+class PkiCertRole(MachineModel, AsyncInjectable, template=True):
+
+    '''Populate certs with :class:`carthage.pki.PkiManager`, a very simple CA that stores state in *state_dir*.
+    '''
+    
+    async def async_ready(self):
+        config = await self.ainjector.get_instance_async(ProxyConfig)
+        setattr_default(self, 'pki_manager_domains', [])
+        for domain in config.ssl_certificates_needed():
+            self.pki_manager_domains.append(domain)
+            config.add_certificate(CertInfo(
+                cert_file=f'/etc/pki/{domain}',
+                key_file=f'/etc/pki/{domain}',
+                domains=(domain,),
+                ))
+        return await super().async_ready()
+
+    @inject_autokwargs(
+        pki=InjectionKey(carthage.pki.PkiManager,_ready=True),
+        )
+    class install_certs_cust(FilesystemCustomization):
+
+        @setup_task("Install and Generate Certificates")
+        async def install_certs(self):
+            await self.model.async_become_ready()
+            pki_path = self.path/"etc/pki"
+            pki_path.mkdir(mode=0o700, exist_ok=True)
+            for d in self.model.pki_manager_domains:
+                domain_path = pki_path/d
+                if domain_path.exists(): continue
+                domain_path.write_text(self.pki.credentials(d))
+                
+__all__ += ['PkiCertRole']
+
+
+class ProxyServerRole(MachineModel, ProxyImageRole, template=True):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -126,8 +197,6 @@ class ProxyServiceRole(MachineModel, AsyncInjectable, template=True):
         * If the container is a :class:`carthage.podman.PodmanContainer`, then ``host.containers.internal`` will be used with the *host_port*.
 
         '''
-
-
         config = await self.ainjector.get_instance_async(ProxyConfig)
         ports = self.injector.filter_instantiate(OciExposedPort, ['container_port'])
         fallback_addr_uses_host_port = False
@@ -162,6 +231,17 @@ class ProxyServiceRole(MachineModel, AsyncInjectable, template=True):
                 upstream=f'{proto}://{upstream_addr}:{port}/',
                 downstream=f'https://{self.name}/',
                 ))
-            
+
+    async def register_proxy_map(self):
+        # Long term this should be expanded to allow the model to override proxy services, or specify them if the model will not be implemented by a container.
+        # For now all we support is the container logic
+        await self.register_container_proxy_services()
+
+    async def resolve_networking(self, force=False):
+        # register the proxy services at this phase, because it is guaranteed to always happen on layout initialization
+        # Resolve networking might better be thought of as a phase where models announce properties that influence other models, but we have not actually caught up with that concept
+        await self.register_proxy_map()
+        return await super().resolve_networking(force=force)
+    
             
 __all__ += ['ProxyServiceRole']

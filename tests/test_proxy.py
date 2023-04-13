@@ -22,7 +22,7 @@ class layout(CarthageLayout):
     add_provider(machine_implementation_key, dependency_quote(PodmanContainer))
     add_provider(ProxyConfig)
 
-    class webserver(ProxyServerRole):
+    class webserver(ProxyServerRole, PkiCertRole):
         pass
 
     class microservice(ProxyServiceRole):
@@ -31,7 +31,6 @@ class layout(CarthageLayout):
 @async_test
 async def test_proxy_config_generate(ainjector):
     l = await ainjector(layout)
-    await l.microservice.register_container_proxy_services()
     await l.generate()
     
 
@@ -39,7 +38,6 @@ async def test_proxy_config_generate(ainjector):
 async def test_proxy_works(ainjector):
     l = await ainjector(layout)
     ainjector = l.ainjector
-    await l.microservice.register_container_proxy_services()
     try:
         await l.microservice.machine.async_become_ready()
         await l.webserver.machine.async_become_ready()
