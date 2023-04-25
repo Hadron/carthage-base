@@ -13,20 +13,8 @@ from carthage.pytest import *
 from carthage.podman import *
 from carthage.oci import *
 from carthage_base.proxy import *
+from layout import test_layout as layout
 
-class layout(CarthageLayout):
-
-    add_provider(oci_container_image, 'debian:latest')
-    oci_interactive = True
-    
-    add_provider(machine_implementation_key, dependency_quote(PodmanContainer))
-    add_provider(ProxyConfig)
-
-    class webserver(ProxyServerRole, PkiCertRole):
-        pass
-
-    class microservice(ProxyServiceRole):
-        add_provider(OciExposedPort(container_port=80, host_port=8880))
 
 @async_test
 async def test_proxy_config_generate(ainjector):

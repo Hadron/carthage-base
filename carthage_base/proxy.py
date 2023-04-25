@@ -10,6 +10,7 @@ import dataclasses
 import os
 from pathlib import Path
 from urllib.parse import urlparse
+import carthage.dns
 import carthage.pki
 from carthage import *
 from carthage.modeling import *
@@ -48,6 +49,10 @@ class ProxyService(InjectableModel):
     upstream:str #: URL that the proxy should contact to reach the service
     downstream: str #: URL facing toward the public side of the proxy
     service: str #:A name to identify the service; the service and protocol need to be unique in the context of a given :class:`ProxyConfig`
+    #: List of addresses that DNS should point to for this proxy service
+    public_ips: list = dataclasses.field(default_factory=lambda: [])
+    public_name: str = None #: The public name under which the service is registered in DNS
+    
 
     def __post_init__(self):
         object.__setattr__(self, 'upstream_url', urlparse(self.upstream))
@@ -119,7 +124,7 @@ class ProxyImageRole(ImageRole):
                 'apt', 'update')
             await self.run_command(
                 'apt', '-y', 'install', 'apache2')
-            await self.run_command('a2enmod', 'proxy', 'headers')
+            await self.run_command('a2enmod', 'proxy', 'headers', 'ssl')
 
 __all__ += ['ProxyImageRole']
 
@@ -166,15 +171,34 @@ class ProxyServerRole(MachineModel, ProxyImageRole, template=True):
                                        
     
     proxy_conf_task = mako_task('proxy.conf', by_server_path=InjectionKey('by_server_path'),
+                                certs_by_domain=InjectionKey('certs_by_domain'),
                                 output='etc/apache2/conf-enabled/proxy.conf')
 
     @inject(config=ProxyConfig)
     async def by_server_path(self, config):
         return config.by_downstream_server_path()
 
+    @inject(config=ProxyConfig)
+    async def certs_by_domain(config):
+        return config.certs_by_server()
     class proxy_server_cust(FilesystemCustomization):
         install_mako = install_mako_task('model')
-        
+
+        @setup_task("Update dns for proxied services")
+        @inject(config=ProxyConfig)
+        async def update_dns(self, config):
+            found_addresses = False
+            for s in config.services:
+                if not s.public_name and s.public_ips: continue
+                found_addresses = True
+                try: await self.ainjector(
+                    carthage.dns.update_dns_for,
+                        s.public_name,
+                        ('A', s.public_ips))
+                except KeyError:
+                    logger.warning(f'Failed to find DNS zone for {s.public_name}, so did not update proxy address')
+            if not found_addresses: raise SkipSetupTask
+            
 __all__ += ['ProxyServerRole']
 
 class ProxyServiceRole(MachineModel, AsyncInjectable, template=True):
@@ -194,11 +218,19 @@ class ProxyServiceRole(MachineModel, AsyncInjectable, template=True):
 
         * if *ip_address* is set on the model, it will be used with the *container_port*.
 
-        * If the container is a :class:`carthage.podman.PodmanContainer`, then ``host.containers.internal`` will be used with the *host_port*.
+        * If the container is a : class:`carthage.podman.PodmanContainer`, then ``host.containers.internal`` will be used with the *host_port*.
 
         '''
         config = await self.ainjector.get_instance_async(ProxyConfig)
+        host_model = await self.machine.container_host.ainjector.get_instance_async(InjectionKey(container_host_model_key, _optional=True))
         ports = self.injector.filter_instantiate(OciExposedPort, ['container_port'])
+        if host_model:
+            container_host_public_ips = set(
+            l.merged_v4_config.public_address for l in host_model.network_links.values())
+            container_host_public_ips -= {None}
+        else:
+            logger.warn(f'{self.name} could not find container_host_model; no public addresses.  Set container_host_model_key appropriately.')
+            container_host_public_ips = []
         fallback_addr_uses_host_port = False
         fallback_addr = getattr(self, 'proxy_address', None)
         if fallback_addr:
@@ -220,16 +252,21 @@ class ProxyServiceRole(MachineModel, AsyncInjectable, template=True):
             upstream_addr = exposed_port.host_ip
             if upstream_addr == '0.0.0.0' or upstream_addr == '127.0.0.1':
                 upstream_addr = fallback_addr
+                public_ips = container_host_public_ips
                 if fallback_addr_uses_host_port: port = host_port
             else:
                 # We are using the host_ip from the OciExposedPort
                 port = host_port
+                public_ips = public_addresses_for_private_address(
+                    host_model, upstream_addr)
             if upstream_addr is None:
                 raise ValueError('Cannot figure out upstream address')
             config.add_proxy_service(ProxyService(
                 service=(self.name if proto == 'http' else self.name+'-'+proto),
                 upstream=f'{proto}://{upstream_addr}:{port}/',
                 downstream=f'https://{self.name}/',
+                public_name=self.name,
+                public_ips=public_ips,
                 ))
 
     async def register_proxy_map(self):
