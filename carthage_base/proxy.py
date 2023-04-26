@@ -151,6 +151,7 @@ class CertbotCertRole(MachineModel, AsyncInjectable, template=True):
 
         @setup_task("Install Certbot")
         async def install_certbot_task(self):
+            await self.run_command('apt', 'update')
             await self.run_command(
                 'apt', '-y', 'install',
                 'certbot', 'python3-certbot-apache'
@@ -230,7 +231,7 @@ class ProxyServerRole(MachineModel, ProxyImageRole, template=True):
                 try: await self.ainjector(
                     carthage.dns.update_dns_for,
                         s.public_name,
-                        ('A', s.public_ips))
+                        [('A', s.public_ips)])
                 except KeyError:
                     logger.warning(f'Failed to find DNS zone for {s.public_name}, so did not update proxy address')
             if not found_addresses: raise SkipSetupTask
@@ -266,9 +267,9 @@ class ProxyServiceRole(MachineModel, AsyncInjectable, template=True):
                 machine = await host_model.ainjector.get_instance_async(InjectionKey(Machine, _ready=False))
                 if not machine.running: await machine.start_machine()
                 public_ips = set(
-                    l.merged_v4_config.public_address for l in host_model.network_links.values())
+                    str(l.merged_v4_config.public_address) for l in host_model.network_links.values())
                 public_ips -= {None}
-                return public_ips
+                return list(public_ips)
             else:
                 logger.warn(f'{self.name} could not find container_host_model; no public addresses.  Set container_host_model_key appropriately.')
                 return []
