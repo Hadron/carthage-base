@@ -147,6 +147,15 @@ class CertbotCertRole(MachineModel, AsyncInjectable, template=True):
             ))
         return await super().async_ready()
 
+    class install_certbot(FilesystemCustomization):
+
+        @setup_task("Install Certbot")
+        async def install_certbot_task(self):
+            await self.run_command(
+                'apt', '-y', 'install',
+                'certbot', 'python3-certbot-apache'
+                )
+            
 
 __all__ += ['CertbotCertRole']
 
