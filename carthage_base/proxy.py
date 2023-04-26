@@ -128,6 +128,29 @@ class ProxyImageRole(ImageRole):
 
 __all__ += ['ProxyImageRole']
 
+class CertbotCertRole(MachineModel, AsyncInjectable, template=True):
+
+    '''
+    Sets up a proxy server to use a single letsencrypt certificate.
+    Does not actually  call certbot yet.
+    '''
+    
+    async def async_ready(self):
+        config = await self.ainjector.get_instance_async(ProxyConfig)
+        domains = list(config.ssl_certificates_needed())
+        domains.sort()
+        if domains:
+            config.add_certificate(CertInfo(
+                cert_file=f'/etc/letsencrypt/live/{domains[0]}/fullchain.pem',
+                key_file=f'/etc/letsencript/live/{domains[0]}/privkey.pem',
+                domains=tuple(domains)
+            ))
+        return await super().async_ready()
+
+
+__all__ += ['CertbotCertRole']
+
+        
 class PkiCertRole(MachineModel, AsyncInjectable, template=True):
 
     '''Populate certs with :class:`carthage.pki.PkiManager`, a very simple CA that stores state in *state_dir*.
@@ -231,6 +254,8 @@ class ProxyServiceRole(MachineModel, AsyncInjectable, template=True):
         @inject(host_model=InjectionKey(container_host_model_key, _optional=True))
         async def container_host_public_ips(host_model):
             if host_model:
+                machine = await host_model.ainjector.get_instance_async(InjectionKey(Machine, _ready=False))
+                if not machine.running: await machine.start_machine()
                 public_ips = set(
                     l.merged_v4_config.public_address for l in host_model.network_links.values())
                 public_ips -= {None}
