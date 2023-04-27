@@ -281,7 +281,7 @@ class ProxyServiceRole(MachineModel, AsyncInjectable, template=True):
             fallback_addr = getattr(self, 'ip_address', None)
             if fallback_addr is None \
                and issubclass(self.machine_type, PodmanContainer):
-                fallback_addr = 'containers.host.internal'
+                fallback_addr = 'host.containers.internal'
                 fallback_addr_uses_host_port = True
                 
         for key, exposed_port in ports:
