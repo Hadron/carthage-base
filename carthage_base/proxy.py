@@ -142,7 +142,7 @@ class CertbotCertRole(MachineModel, AsyncInjectable, template=True):
         if domains:
             config.add_certificate(CertInfo(
                 cert_file=f'/etc/letsencrypt/live/{domains[0]}/fullchain.pem',
-                key_file=f'/etc/letsencript/live/{domains[0]}/privkey.pem',
+                key_file=f'/etc/letsencrypt/live/{domains[0]}/privkey.pem',
                 domains=tuple(domains)
             ))
         return await super().async_ready()
