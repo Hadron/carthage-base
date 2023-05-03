@@ -124,7 +124,7 @@ class ProxyImageRole(ImageRole):
                 'apt', 'update')
             await self.run_command(
                 'apt', '-y', 'install', 'apache2')
-            await self.run_command('a2enmod', 'proxy', 'headers', 'ssl')
+            await self.run_command('a2enmod', 'proxy', 'headers', 'ssl', 'proxy_http')
 
 __all__ += ['ProxyImageRole']
 
