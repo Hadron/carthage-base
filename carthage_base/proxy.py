@@ -245,7 +245,7 @@ class ProxyServiceRole(MachineModel, AsyncInjectable, template=True):
 
         Based on :class:`ports a container exposes <OciExposedPort>`, infer :class:`ProxyServices` to configure for a container providing a service.
 
-        If port 80 or 443 is exposed, then register a service.  The following options will be used for the upstream proxy address in decreasing priority order:
+        If port 80, 8080,  or 443 is exposed, then register a service.  The following options will be used for the upstream proxy address in decreasing priority order:
 
         * if a *host_ip* is specified in the :class:`OciExposedPort`, then that IP and the *host_port* will be used.
 
@@ -285,10 +285,10 @@ class ProxyServiceRole(MachineModel, AsyncInjectable, template=True):
                 fallback_addr_uses_host_port = True
                 
         for key, exposed_port in ports:
-            if exposed_port.container_port not in (80, 443): continue
+            if exposed_port.container_port not in (80, 8080, 443): continue
             port = exposed_port.container_port
             host_port = exposed_port.host_port
-            if port == 80: proto ='http'
+            if port == 80 or port == 8080: proto ='http'
             elif port == 443: proto = 'https'
             else: raise ValueError('Unable to figure out protocol')
             upstream_addr = exposed_port.host_ip
