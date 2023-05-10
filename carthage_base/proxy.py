@@ -133,8 +133,20 @@ class CertbotCertRole(ImageRole, SetupTaskMixin, AsyncInjectable):
     '''
     Sets up a proxy server to use a single letsencrypt certificate.
     Does not actually  call certbot yet.
-    '''
+
+    configuration:
+
+    certbot_email
+        Email for important account updates
+
+    certbot_production_certificates
+        If true, get production certificates
     
+    '''
+
+    certbot_email = None
+    certbot_production_certificates = True
+
     async def async_ready(self):
         self.cert_info = None
         if isinstance(self, MachineModel):
@@ -159,6 +171,28 @@ class CertbotCertRole(ImageRole, SetupTaskMixin, AsyncInjectable):
                 'apt', '-y', 'install',
                 'certbot', 'python3-certbot-apache'
                 )
+
+        @setup_task("get certificates")
+        async def get_certificates(self):
+            if getattr(self.model, 'cert_info', None):
+                domains = self.model.cert_info.domains
+                if not domains: raise SkipSetupTask
+                if not self.model.certbot_email:
+                    logger.warning('Certbot disabled because email not set')
+                    raise SkipSetupTask
+                test_argument = tuple() if self.model.certbot_production_certificates else ('--test-certificate',)
+                await self.run_command(
+                    'certbot',
+                    '-n',
+                    '--apache',
+                    '-d', ','.join(domains),
+                    '-n',
+                    '--agree-tos',
+                    '-m', self.model.certbot_email,
+                    *test_argument)
+                
+            else: raise SkipSetupTask
+            
             
 
 __all__ += ['CertbotCertRole']
