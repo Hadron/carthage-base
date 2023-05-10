@@ -128,7 +128,7 @@ class ProxyImageRole(ImageRole):
 
 __all__ += ['ProxyImageRole']
 
-class CertbotCertRole(MachineModel, AsyncInjectable, template=True):
+class CertbotCertRole(ImageRole, SetupTaskMixin, AsyncInjectable):
 
     '''
     Sets up a proxy server to use a single letsencrypt certificate.
@@ -136,15 +136,18 @@ class CertbotCertRole(MachineModel, AsyncInjectable, template=True):
     '''
     
     async def async_ready(self):
-        config = await self.ainjector.get_instance_async(ProxyConfig)
-        domains = list(config.ssl_certificates_needed())
-        domains.sort()
-        if domains:
-            config.add_certificate(CertInfo(
-                cert_file=f'/etc/letsencrypt/live/{domains[0]}/fullchain.pem',
-                key_file=f'/etc/letsencrypt/live/{domains[0]}/privkey.pem',
+        self.cert_info = None
+        if isinstance(self, MachineModel):
+            config = await self.ainjector.get_instance_async(ProxyConfig)
+            domains = list(config.ssl_certificates_needed())
+            domains.sort()
+            if domains:
+                self.cert_info = CertInfo(
+                    cert_file=f'/etc/letsencrypt/live/{domains[0]}/fullchain.pem',
+                    key_file=f'/etc/letsencrypt/live/{domains[0]}/privkey.pem',
                 domains=tuple(domains)
-            ))
+                                  )
+                config.add_certificate(self.cert_info)
         return await super().async_ready()
 
     class install_certbot(FilesystemCustomization):
