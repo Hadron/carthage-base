@@ -76,6 +76,8 @@ __all__ += ['ProxyService']
 
 class ProxyConfig(InjectableModel):
 
+    #: TTL for dns records
+    dns_ttl = 30
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.services = {}
@@ -180,7 +182,7 @@ class CertbotCertRole(ImageRole, SetupTaskMixin, AsyncInjectable):
                 if not self.model.certbot_email:
                     logger.warning('Certbot disabled because email not set')
                     raise SkipSetupTask
-                test_argument = tuple() if self.model.certbot_production_certificates else ('--test-certificate',)
+                test_argument = tuple() if self.model.certbot_production_certificates else ('--test-cert',)
                 await self.run_command(
                     'certbot',
                     '-n',
@@ -268,7 +270,7 @@ class ProxyServerRole(MachineModel, ProxyImageRole, template=True):
                 try: await self.ainjector(
                     carthage.dns.update_dns_for,
                         s.public_name,
-                        [('A', s.public_ips)])
+                        [('A', s.public_ips)], ttl=config.dns_ttl)
                 except KeyError:
                     logger.warning(f'Failed to find DNS zone for {s.public_name}, so did not update proxy address')
             if not found_addresses: raise SkipSetupTask
