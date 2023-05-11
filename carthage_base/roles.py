@@ -15,6 +15,7 @@ from carthage.modeling import *
 from carthage.ssh import SshKey
 from carthage.ansible import *
 from carthage.sonic import SonicNetworkModelMixin
+from carthage.oci import OciMount
 from .pki import CertificateInstallationTask
 
 __all__ = []
@@ -344,3 +345,48 @@ class Bind9Role(MachineModel, template=True):
             await self.run_command('rndc', 'reload')
 
 __all__ += ['Bind9Role']
+
+class PostgresRole(MachineModel, template=True):
+
+    pg_user = 'database' #: user to create
+    pg_database = 'database' #: Name of Database to create
+    pg_password = 'password' #: Password for pg_user
+
+    #: if not None, register OCIMounts for /var/lib/postgresql and /etc/postgresql; if run in a container these will be volume mounts.
+    pg_volume_stem = None
+    
+    # In case we are run in a OCI container
+    oci_command = ['/bin/systemd']
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        if self.pg_volume_stem:
+            self.injector.add_provider(
+                OciMount('/var/lib/postgresql', self.pg_volume_stem))
+            self.injector.add_provider(
+                OciMount('/etc/postgresql', self.pg_volume_stem+'_etc'))
+                
+    class postgres_actions(FilesystemCustomization):
+
+        @setup_task("Install Postgres")
+        async def install_postgres(self):
+            await self.run_command(
+                'apt', '-y', 'install',
+                'postgresql')
+
+        @setup_task("Set up database and user")
+        async def setup_database(self):
+            pg_password = self.model.pg_password.replace("'", "''")
+            self.path.joinpath('create.sql').write_text(
+                f'''
+                create user {self.model.pg_user} password '{pg_password}';
+                create database {self.model.pg_database} owner {self.model.pg_user};
+                ''')
+            await self.run_command('/bin/systemctl', 'start', 'postgresql')
+            await self.run_command(
+                'runuser', 'postgres',
+                'sh', '-c',
+                'psql template1 </create.sql')
+
+__all__ += ['PostgresRole']
+                
