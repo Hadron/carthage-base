@@ -192,8 +192,16 @@ class CertbotCertRole(ImageRole, SetupTaskMixin, AsyncInjectable):
                     '--agree-tos',
                     '-m', self.model.certbot_email,
                     *test_argument)
-                
             else: raise SkipSetupTask
+
+        @get_certificates.hash()
+        def get_certificates(self):
+            try:
+                domains = list(self.model.cert_info.domains)
+            except (AttributeError,KeyError): return ""
+            domains.sort()
+            return ",".join(domains)
+            
             
             
 
