@@ -292,7 +292,7 @@ class ProxyServiceRole(MachineModel, AsyncInjectable, template=True):
 
         Based on :class:`ports a container exposes <OciExposedPort>`, infer :class:`ProxyServices` to configure for a container providing a service.
 
-        If port 80, 8080,  or 443 is exposed, then register a service.  The following options will be used for the upstream proxy address in decreasing priority order:
+        If port 80, 8080,  or 443 are exposed, then register a service.  The following options will be used for the upstream proxy address in decreasing priority order:
 
         * if a *host_ip* is specified in the :class:`OciExposedPort`, then that IP and the *host_port* will be used.
 
@@ -364,10 +364,10 @@ class ProxyServiceRole(MachineModel, AsyncInjectable, template=True):
         await self.register_container_proxy_services()
 
     async def resolve_networking(self, force=False):
+        await super().resolve_networking(force=force)
         # register the proxy services at this phase, because it is guaranteed to always happen on layout initialization
         # Resolve networking might better be thought of as a phase where models announce properties that influence other models, but we have not actually caught up with that concept
         await self.register_proxy_map()
-        return await super().resolve_networking(force=force)
     
             
 __all__ += ['ProxyServiceRole']
