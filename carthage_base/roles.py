@@ -54,7 +54,7 @@ class DhcpRole(MachineModel, template = True):
                            _bg_exc = False)
 
 __all__ += ['DhcpRole']
-            
+
 class CarthageServerRole(ImageRole):
 
     project_destination = "/"
@@ -64,7 +64,7 @@ class CarthageServerRole(ImageRole):
 
     #:if True (the default), keep track of the git hashes of copied trees and copy again on change.
     carthage_role_track_git_changes = True
-    
+
     class customize_for_carthage(FilesystemCustomization):
 
         libvirt_server_role = ansible_role_task('libvirt-server')
@@ -108,21 +108,21 @@ class CarthageServerRole(ImageRole):
                 hashes.append(git_tree_hash(self.model.layout_source))
             except AttributeError: pass
             return str(hashes)
-        
+
 
 __all__ += ['CarthageServerRole']
 
 @inject(authorized_keys=carthage.ssh.AuthorizedKeysFile)
 class SonicMachineMixin(Machine, SetupTaskMixin):
 
-        
+
     # We cannot just use a CustomizationTask in the model because we
     # need to force this role to be very early
-    
+
     sonic_role = ansible_role_task(
         "sonic_config",
         before=carthage.systemd.SystemdNetworkInstallMixin.generate_config_dependency)
-    
+
 class SonicRole(SonicNetworkModelMixin, MachineModel, template=True):
 
     add_provider(InjectionKey(MachineMixin, name="sonic"), dependency_quote(SonicMachineMixin))
@@ -161,7 +161,7 @@ class StrongswanGatewayRole(MachineModel, template=True):
         super().__init_subclass__(template=template, **kwargs)
         if not template:
             globally_unique_key(InjectionKey(StrongswanGatewayRole, host=cls.name))(cls)
-                
+
     #: The xfrm interface id or None for inbound traffic
     if_id_in = None
 
@@ -170,7 +170,7 @@ class StrongswanGatewayRole(MachineModel, template=True):
 
     #: Child traffic selectors
     child_ts = '0.0.0.0/0'
-    
+
     class ipsec_customization(FilesystemCustomization):
 
         install_mako = install_mako_task('model')
@@ -180,7 +180,7 @@ class StrongswanGatewayRole(MachineModel, template=True):
             key_dir='/etc/swanctl/rsa',
             stem='strongswan.pem',
             )
-        
+
 
         install_strongswan = ansible_role_task('install-strongswan')
 
@@ -215,6 +215,8 @@ class Bind9Role(MachineModel, template=True):
     dnssec_policy
         Set the dnssec policy for the zone
 
+    initial_records
+        Initial records besides the SOA if the zone file does not exist.  Currently just a string dumped into the zone file.
 
     Also, the *named_options* mapping contains global options:
 
@@ -227,6 +229,7 @@ class Bind9Role(MachineModel, template=True):
     @memoproperty
     def zones_ns(self):
         result = {}
+        if not hasattr(self, 'zones'): return result
         for name, zone in self.zones.items():
             for k in self.zone_options:
                 if k == 'masters' and zone['type'] == 'primary':
@@ -251,7 +254,7 @@ class Bind9Role(MachineModel, template=True):
     named_conf_local = mako_task('named.conf.local.mako',
                                  output='etc/bind/named.conf.local')
     named_conf_options = mako_task('named.conf.options.mako', output='etc/bind/named.conf.options')
-    
+
 
     #: Global bind options
     named_options = {}
@@ -260,18 +263,17 @@ class Bind9Role(MachineModel, template=True):
 
     def __init_subclass__(cls, **kwargs):
         from .dns import Bind9DnsZone
-        from carthage.modeling.implementation import add_provider_after
         super().__init_subclass__(**kwargs)
 
         try: cls.zones
         except AttributeError: return
         for name, z in cls.zones.items():
             if 'update_keys' in z:
-                add_provider_after(cls,
+                cls.add_provider(
                                    InjectionKey(DnsZone, name=name, _globally_unique=True),
                                    when_needed(Bind9DnsZone, name=name),
                                    propagate=True)
-                
+
     class dns_customization(FilesystemCustomization):
 
         description = "Customize for dns server"
@@ -279,6 +281,43 @@ class Bind9Role(MachineModel, template=True):
         install_bind9 = ansible_role_task('install-bind9')
 
         install_mako = install_mako_task('model')
+
+        @setup_task("Create any needed zones")
+        async def create_zones(self):
+            zone_stem = Path(self.model.primary_zone_dir).relative_to('/')
+            zone_path = self.path/zone_stem
+            if not zone_path.exists():
+                zone_path.mkdir()
+                await self.run_command(
+                    'chown', 'bind', str(zone_stem))
+                
+            for z, options in self.model.zones_ns.items():
+                if options.type != 'primary': continue
+                this_zone_path = zone_path/options.file
+                if not this_zone_path.exists():
+                    initial_records = getattr(options, 'initial_records', None)
+                    if initial_records is None:
+                        initial_records = f'@ IN NS {self.model.name}.'
+                        if z in self.model.name:
+                            logger.warning(f'{z} zone is likely to fail because we need an address for {self.model.name} in the zone nameservers')
+                    this_zone_path.write_text(f'''
+{z}.		IN SOA	{self.model.name}. hostmaster.{self.model.name}. (
+                                1 ; serial
+                                36000      ; refresh (10 hours)
+                                86400      ; retry (1 day)
+                                2419200    ; expire (4 weeks)
+                                4000       ; minimum (1 hour 6 minutes 40 seconds)
+                                )
+{initial_records}
+''')
+                    await self.run_command(
+                        'chown', 'bind',
+                        '/'+str(this_zone_path.relative_to(self.path)))
+
+
+        @create_zones.hash()
+        def create_zones(self):
+            return str(list(self.model.zones_ns.keys()))
 
         @setup_task('Generate needed tsig keys')
         async def generate_tsig_keys(self, invalidate=False):
@@ -337,10 +376,12 @@ class Bind9Role(MachineModel, template=True):
                     if model_stat.st_mtime > last:
                         last = model_stat.st_mtime
             return last
-        
+
 
         @setup_task('reload bind')
         async def reload_bind(self):
+            try: await self.run_command('/bin/systemctl', 'start', 'bind9')
+            except Exception: pass
             await self.run_command('rndc', 'reconfig')
             await self.run_command('rndc', 'reload')
 
@@ -354,7 +395,7 @@ class PostgresRole(MachineModel, template=True):
 
     #: if not None, register OCIMounts for /var/lib/postgresql and /etc/postgresql; if run in a container these will be volume mounts.
     pg_volume_stem = None
-    
+
     # In case we are run in a OCI container
     oci_command = ['/bin/systemd']
 
@@ -365,7 +406,7 @@ class PostgresRole(MachineModel, template=True):
                 OciMount('/var/lib/postgresql', self.pg_volume_stem))
             self.injector.add_provider(
                 OciMount('/etc/postgresql', self.pg_volume_stem+'_etc'))
-                
+
     class postgres_actions(FilesystemCustomization):
 
         @setup_task("Install Postgres")
@@ -389,4 +430,3 @@ class PostgresRole(MachineModel, template=True):
                 'psql template1 </create.sql')
 
 __all__ += ['PostgresRole']
-                

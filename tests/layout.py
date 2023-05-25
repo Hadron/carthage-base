@@ -16,9 +16,11 @@ from carthage_base import *
 from carthage_base.proxy import *
 from carthage.podman import *
 from carthage.oci import *
+from carthage.ansible import ansible_log
 
 class test_layout(CarthageLayout, PublicDnsManagement):
 
+    add_provider(ansible_log, '/tmp/ansible.log')
 
     add_provider(InjectionKey(DnsZone, role='public_zone'),
                  when_needed(AwsHostedZone, name="autotest.photon.ac",
@@ -26,14 +28,35 @@ class test_layout(CarthageLayout, PublicDnsManagement):
     add_provider(WriteAuthorizedKeysPlugin, allow_multiple=True)
     add_provider(InjectionKey('aws_ami'), image_provider(owner=debian_ami_owner, name='debian-11-amd64-*'))
 
-    add_provider(oci_container_image, 'debian:latest')
+    add_provider(oci_container_image, 'debian:bookworm')
     oci_interactive = True
     
     add_provider(machine_implementation_key, dependency_quote(PodmanContainer))
     add_provider(ProxyConfig)
 
     domain = 'autotest.photon.ac'
-    
+
+    @provides('ansible_image')
+    class AnsibleImage(ContainerfileImage):
+        oci_image_tag = 'debian:ansible-target'
+        container_context = 'ansible-target'
+        
+    class bind9_dns_server(Bind9Role, MachineModel):
+        add_provider(oci_container_image, injector_access(AnsibleImage))
+        add_provider(OciExposedPort(
+            53, host_port=5354,
+            proto='udp', host_ip='127.0.0.1'))
+
+        zones = {
+            'test.local': dict(
+                file='test.local.zone',
+                type='primary',
+                update_server='127.0.0.1 5354',
+                update_keys=['_update.test.local']
+                )}
+
+        name = 'bind9'
+
     @provides("proxy_image")
     class proxy_image(ProxyImageRole, PodmanImageModel):
         oci_image_tag = 'proxy:latest'
