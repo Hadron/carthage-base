@@ -20,7 +20,7 @@ from carthage.ansible import ansible_log
 
 class test_layout(CarthageLayout, PublicDnsManagement):
 
-    add_provider(ansible_log, '/tmp/ansible.log')
+    #add_provider(ansible_log, '/tmp/ansible.log')
 
     add_provider(InjectionKey(DnsZone, role='public_zone'),
                  when_needed(AwsHostedZone, name="autotest.photon.ac",
