@@ -6,6 +6,7 @@
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the file
 # LICENSE for details.
 import collections.abc
+from ipaddress import IPv4Address
 from carthage import sh
 from carthage.dependency_injection import *
 from carthage.modeling import *
@@ -32,7 +33,10 @@ class Bind9DnsZone(InjectableModel, DnsZone):
         if not self.model.machine.running: await self.model.machine.start_machine()
         key_path = self.model.key_path(self.zone_info.update_keys[0])
         update = f"zone {self.name}\n"
-        try: update += f'server {self.zone_info.update_server}\n'
+        try:
+            server = self.zone_info.update_server
+            server = await resolve_deferred(self.ainjector, server, args=dict(zone=self.name))
+            update += f'server {server}\n'
         except AttributeError: pass
         for a in args:
             assert isinstance(a, collections.abc.Sequence), "Each update must be a Sequence"
@@ -51,3 +55,20 @@ class Bind9DnsZone(InjectableModel, DnsZone):
                           _in=update,
                           _bg=True, _bg_exc=False)
         
+@inject(model=AbstractMachineModel)
+async def default_ns_for_zone(*, model, zone):
+    '''
+    Generates an NS record claiming that the model itself is the
+    nameserver for the zone.  If the model's name is within the zone,
+    then look up the model's IP address and insert an A record.
+    '''
+    result = f'''\
+@               IN      NS      {model.name}.
+'''
+    if model.name.endswith(zone):
+        if not model.machine.running: await model.machine.start_machine()
+        assert IPv4Address(model.machine.ip_address), "Don't know how to get IP address for zone"
+        result += f'''\
+{model.name}. IN        A       {model.machine.ip_address}
+'''
+    return result

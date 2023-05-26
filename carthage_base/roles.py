@@ -1,10 +1,11 @@
-# Copyright (C) 2018, 2019, 2020, 2021, 2022, Hadron Industries, Inc.
+# Copyright (C) 2018, 2019, 2020, 2021, 2022, 2023, Hadron Industries, Inc.
 # Carthage is free software; you can redistribute it and/or modify
 # it under the terms of the GNU Lesser General Public License version 3
 # as published by the Free Software Foundation. It is distributed
 # WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the file
 # LICENSE for details.
+
 import os.path
 from pathlib import Path
 import types
@@ -17,6 +18,7 @@ from carthage.ansible import *
 from carthage.sonic import SonicNetworkModelMixin
 from carthage.oci import OciMount
 from .pki import CertificateInstallationTask
+from . import dns
 
 __all__ = []
 
@@ -189,10 +191,10 @@ __all__ += ['StrongswanGatewayRole']
 class Bind9Role(MachineModel, template=True):
 
     '''
-    The *zones* property is a mapping of zone name to  of dicts containing the following:
+    The *zones* property is a mapping of zone name to dicts containing zone-specific options.  Some of the options can be resolved; this means that they will be processed by :func:`~carthage.dependency_injection.resolve_deferred` so that for example nameserver IP addresses can be looked up more dynamically.  Where deferred resolution is available, the option description indicates.  The following options are available:
 
     name
-        The name of the zone
+        The name of the zone is indicated as the key in the *zones* property.
 
     type
         primary|secondary
@@ -212,11 +214,14 @@ class Bind9Role(MachineModel, template=True):
     update_keys
         Name of keys that can dynamically update the zone
 
+    update_server
+        The server (IP or hostname) or a server followed by port to which :class:`.dns.Bind9DnsZone` should send updates.  This option is resolved.
+
     dnssec_policy
         Set the dnssec policy for the zone
 
     initial_records
-        Initial records besides the SOA if the zone file does not exist.  Currently just a string dumped into the zone file.
+        Initial records besides the SOA if the zone file does not exist.  Currently just a string dumped into the zone file.  This option is resolved.
 
     Also, the *named_options* mapping contains global options:
 
@@ -295,11 +300,9 @@ class Bind9Role(MachineModel, template=True):
                 if options.type != 'primary': continue
                 this_zone_path = zone_path/options.file
                 if not this_zone_path.exists():
-                    initial_records = getattr(options, 'initial_records', None)
-                    if initial_records is None:
-                        initial_records = f'@ IN NS {self.model.name}.'
-                        if z in self.model.name:
-                            logger.warning(f'{z} zone is likely to fail because we need an address for {self.model.name} in the zone nameservers')
+                    initial_records = getattr(options, 'initial_records', dns.default_ns_for_zone)
+                    initial_records = await resolve_deferred(self.ainjector,  initial_records,
+                                                                 args=dict(zone=z))
                     this_zone_path.write_text(f'''
 {z}.		IN SOA	{self.model.name}. hostmaster.{self.model.name}. (
                                 1 ; serial
@@ -430,3 +433,26 @@ class PostgresRole(MachineModel, template=True):
                 'psql template1 </create.sql')
 
 __all__ += ['PostgresRole']
+
+
+class AnsibleUseMachineIpAddress(Machine):
+
+    '''
+    This mixin uses machine.ip_address as the ansible_host when ansible is applied to this machine.  It does not override the inventory file.
+    '''
+    @property
+    def ansible_inventory_overrides(self):
+        return dict(
+            ansible_host=self.ip_address)
+    
+class AnsibleMachineIpAddressRole(MachineModel, template=True):
+
+    '''
+    Indicates that regardless mof what is stored in ansible inventory, when Carthage uses ansible on a machine, use ``machine.ip_address``.
+
+    As an example, on a cloud VM or a libvirt VM with guest agents installed, this will use the detected IP address.
+
+    '''
+    machine_mixins = (AnsibleUseMachineIpAddress,)
+
+__all__ += ['AnsibleMachineIpAddressRole']
