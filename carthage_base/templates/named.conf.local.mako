@@ -19,7 +19,7 @@ ${attr.replace('_','-')} {
 
 // Auto generated; do not edit
 
-include "/etc/bind/*.key";
+include "/etc/bind/keys/*.key";
 
 %for name, zone in instance.zones_ns.items():
 zone "${name}" {
