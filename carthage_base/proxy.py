@@ -208,20 +208,21 @@ class CertbotCertRole(ImageRole, SetupTaskMixin, AsyncInjectable):
 __all__ += ['CertbotCertRole']
 
         
-class PkiCertRole(MachineModel, AsyncInjectable, template=True):
+class PkiCertRole(ImageRole, AsyncInjectable):
 
     '''Populate certs with :class:`carthage.pki.PkiManager`, a very simple CA that stores state in *state_dir*.
     '''
     
     async def async_ready(self):
-        config = await self.ainjector.get_instance_async(ProxyConfig)
-        setattr_default(self, 'pki_manager_domains', [])
-        for domain in config.ssl_certificates_needed():
-            self.pki_manager_domains.append(domain)
-            config.add_certificate(CertInfo(
-                cert_file=f'/etc/pki/{domain}',
-                key_file=f'/etc/pki/{domain}',
-                domains=(domain,),
+        if isinstance(self, MachineModel):
+            config = await self.ainjector.get_instance_async(ProxyConfig)
+            setattr_default(self, 'pki_manager_domains', [])
+            for domain in config.ssl_certificates_needed():
+                self.pki_manager_domains.append(domain)
+                config.add_certificate(CertInfo(
+                    cert_file=f'/etc/pki/{domain}',
+                    key_file=f'/etc/pki/{domain}',
+                    domains=(domain,),
                 ))
         return await super().async_ready()
 
