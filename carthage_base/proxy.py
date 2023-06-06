@@ -233,6 +233,7 @@ class PkiCertRole(ImageRole, AsyncInjectable):
 
         @setup_task("Install and Generate Certificates")
         async def install_certs(self):
+            if not isinstance(self.model, MachineModel): raise SkipSetupTask
             await self.model.async_become_ready()
             pki_path = self.path/"etc/pki"
             pki_path.mkdir(mode=0o700, exist_ok=True)
