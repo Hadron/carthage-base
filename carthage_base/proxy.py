@@ -9,7 +9,9 @@
 import dataclasses
 import os
 from pathlib import Path
+import typing
 from urllib.parse import urlparse
+from ipaddress import IPv4Address
 import carthage.dns
 import carthage.pki
 from carthage import *
@@ -36,22 +38,20 @@ class ProxyService(InjectableModel):
 
     Typical usage is that there is a proxy micro service on a container host that claims port 443 (and possibly 80).  It collects :class:`ProxyService` from its injector up to the point where :class:`ProxyConfig` is defined and reverse proxies for each service.
 
-    This class is indexed by an ``InjectionKey(ProxyService, service=service_name, proto=http|https)``.  It might appear convenient if the class were indexed by an *InjectionKey* containing *upstream_url* as a constraint.  That would require the URL be computable in all cases at compilation time for it to properlyp propagate up.  Depending on how networking is configured, that may not be possible.
-
-
-    Typical usage: this class is not typically directly instantiated. But in cases where the configuration is known it could be instantiated like::
-
-        add_provider(InjectionKey(ProxyService, service=service_name, proto=proto),
-            when_needed(ProxyService, upstream_url=url1, downstream_url=url2, service=service_name), propagate=True)
 
     '''
     
     upstream:str #: URL that the proxy should contact to reach the service
     downstream: str #: URL facing toward the public side of the proxy
     service: str #:A name to identify the service; the service and protocol need to be unique in the context of a given :class:`ProxyConfig`
-    #: List of addresses that DNS should point to for this proxy service.  May be a (potentially asynchronous) function, in which case this will be resolved when first needed.
-    public_ips: list = dataclasses.field(default_factory=lambda: [])
-    public_name: str = None #: The public name under which the service is registered in DNS
+    #: List of addresses that DNS should point to for this proxy service.  May be a (potentially asynchronous) function, in which case this will be resolved when first needed.  If None, uses the proxy server's public_ips
+    public_ips: list = None
+
+    #: Private IPs by which the downstream is known. If empty, uses the ProxyServer's private_ips; may be a potentially asynchronous function
+    private_ips: list = None
+    public_name: str = None #: The public name under which the service is registered in DNS; if downstream is set, must be the same as the netloc of the downstream URL.
+
+    
     
 
     def __post_init__(self):
@@ -247,6 +247,49 @@ __all__ += ['PkiCertRole']
 
 class ProxyServerRole(MachineModel, ProxyImageRole, template=True):
 
+    #: A list of public IPs or a function returning public_ips
+    proxy_public_ips: typing.Union[typing.Callable, list]
+    @inject(host_model=InjectionKey(container_host_model_key, _optional=True))
+    async def proxy_public_ips(self, host_model):
+        if not issubclass(self.machine_type, OciContainer):
+            raise NotImplementedError('It is not yet implemented how to deal with non-containerized ProxyServiceRole')
+        
+        if host_model:
+            machine = await host_model.ainjector.get_instance_async(InjectionKey(Machine, _ready=False))
+            await machine.is_machine_running()
+            if not machine.running: await machine.start_machine()
+            public_ips = set(
+                    l.merged_v4_config.public_address for l in host_model.network_links.values())
+            public_ips -= {None}
+            return list(map(lambda a: str(a), public_ips))
+        else:
+            logger.warn(f'{self.name} could not find container_host_model; no public addresses.  Set container_host_model_key appropriately.')
+            return []
+
+    #: A list of private IPs to use for proxy dns, or a function returning the same
+    proxy_private_ips: typing.Union[typing.Callable, list]
+    @inject(host_model=InjectionKey(container_host_model_key, _optional=True))
+    async def proxy_private_ips(self, host_model):
+        if not issubclass(self.machine_type, OciContainer):
+            raise NotImplementedError('It is not yet implemented how to deal with non-containerized ProxyServiceRole')
+        
+        if host_model:
+            machine = await host_model.ainjector.get_instance_async(InjectionKey(Machine, _ready=False))
+            await machine.is_machine_running()
+            if not machine.running: await machine.start_machine()
+            private_ips = set(
+                l.merged_v4_config.address for l in host_model.network_links.values())
+            try:
+                private_ips.add(IPv4Address(machine.ip_address))
+            except Exception: pass
+            private_ips -= {None, IPv4Address('127.0.0.1')}
+
+            return list(map(lambda a: str(a), private_ips))
+        else:
+            logger.warn(f'{self.name} could not find container_host_model; no addresses.  Set container_host_model_key appropriately.')
+            return []
+
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.injector.replace_provider(InjectionKey('by_server_path'), self.by_server_path)
@@ -272,17 +315,29 @@ class ProxyServerRole(MachineModel, ProxyImageRole, template=True):
         async def update_dns(self, config):
             found_addresses = False
             for s in config.services.values():
-                if not s.public_name and s.public_ips: continue
-                if callable(s.public_ips):
-                    s.public_ips = await self.ainjector(s.public_ips)
-                    if not s.public_ips: continue
-                found_addresses = True
-                try: await self.ainjector(
+                if not s.public_name : continue
+                public_ips = s.public_ips
+                if public_ips is None: public_ips = self.model.proxy_public_ips
+                private_ips = s.private_ips
+                if private_ips is None: private_ips = self.model.proxy_private_ips
+                if callable(public_ips):
+                    public_ips = await self.ainjector(public_ips)
+                public_records = None
+                private_records = None
+                if  public_ips:
+                        public_records=[('A', public_ips)]
+                if callable(private_ips):
+                    private_ips = await self.ainjector(private_ips)
+                if private_ips:
+                    private_records = [('A', private_ips)]
+                if public_ips or private_ips:
+                    found_addresses = True
+                await self.ainjector(
                     carthage.dns.update_dns_for,
                         s.public_name,
-                        [('A', s.public_ips)], ttl=config.dns_ttl)
-                except KeyError:
-                    logger.warning(f'Failed to find DNS zone for {s.public_name}, so did not update proxy address')
+                        public_records=public_records,
+                        private_records=private_records,
+                ttl=config.dns_ttl)
             if not found_addresses: raise SkipSetupTask
             
 __all__ += ['ProxyServerRole']
@@ -310,18 +365,6 @@ class ProxyServiceRole(MachineModel, AsyncInjectable, template=True):
         config = await self.ainjector.get_instance_async(ProxyConfig)
         host_model = await self.machine.container_host.ainjector.get_instance_async(InjectionKey(container_host_model_key, _optional=True))
         ports = self.injector.filter_instantiate(OciExposedPort, ['container_port'])
-        @inject(host_model=InjectionKey(container_host_model_key, _optional=True))
-        async def container_host_public_ips(host_model):
-            if host_model:
-                machine = await host_model.ainjector.get_instance_async(InjectionKey(Machine, _ready=False))
-                if not machine.running: await machine.start_machine()
-                public_ips = set(
-                    str(l.merged_v4_config.public_address) for l in host_model.network_links.values())
-                public_ips -= {None}
-                return list(public_ips)
-            else:
-                logger.warn(f'{self.name} could not find container_host_model; no public addresses.  Set container_host_model_key appropriately.')
-                return []
         fallback_addr_uses_host_port = False
         fallback_addr = getattr(self, 'proxy_address', None)
         if fallback_addr:
@@ -343,13 +386,11 @@ class ProxyServiceRole(MachineModel, AsyncInjectable, template=True):
             upstream_addr = exposed_port.host_ip
             if upstream_addr == '0.0.0.0' or upstream_addr == '127.0.0.1':
                 upstream_addr = fallback_addr
-                public_ips = container_host_public_ips
                 if fallback_addr_uses_host_port: port = host_port
             else:
                 # We are using the host_ip from the OciExposedPort
                 port = host_port
-                public_ips = public_addresses_for_private_address(
-                    InjectionKey(container_host_model_key, _optional=True), upstream_addr)
+
             if upstream_addr is None:
                 raise ValueError('Cannot figure out upstream address')
             config.add_proxy_service(ProxyService(
@@ -357,7 +398,6 @@ class ProxyServiceRole(MachineModel, AsyncInjectable, template=True):
                 upstream=f'{proto}://{upstream_addr}:{port}/',
                 downstream=f'https://{self.name}/',
                 public_name=self.name,
-                public_ips=public_ips,
                 ))
 
     async def register_proxy_map(self):
