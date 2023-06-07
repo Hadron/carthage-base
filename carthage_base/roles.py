@@ -252,7 +252,7 @@ class Bind9Role(MachineModel, template=True):
         return results
 
     #: Directory for primary_zone data
-    primary_zone_dir = "/etc/bind/zones"
+    primary_zone_dir = "/var/lib/bind/zones"
 
     #: A set of options to merge into every zone definition.  Options in the zone override.  Masters is always removed from primary zones.
     zone_options = {}
