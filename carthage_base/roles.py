@@ -76,7 +76,7 @@ class CarthageServerRole(ImageRole):
                 config=ConfigLayout)
         async def copy_in_carthage(self, ainjector, config):
             host = self.host
-            if isinstance(host, LocalMachine): raise SkipSetupTask
+            if isinstance(host, LocalMachineMixin): raise SkipSetupTask
             project_destination = Path(host.model.project_destination)
             await self.run_command("mkdir", "-p", str(project_destination))
             await self.run_command('apt', 'update')
