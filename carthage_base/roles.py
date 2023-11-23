@@ -67,8 +67,17 @@ class CarthageServerRole(ImageRole):
     #:if True (the default), keep track of the git hashes of copied trees and copy again on change.
     carthage_role_track_git_changes = True
 
+    
     class customize_for_carthage(FilesystemCustomization):
 
+        @inject(injector=Injector)
+        def carthage_server_vars(injector):
+            from carthage.deployment import gen_requirements, gen_os_dependencies
+            return dict(
+                deb_packages=",".join(injector(gen_os_dependencies)),
+                pypi_packages=injector(gen_requirements))
+
+        carthage_server_role = ansible_role_task('carthage-server', vars=carthage_server_vars)
         libvirt_server_role = ansible_role_task('libvirt-server')
 
         @setup_task("Copy in carthage and layout")

@@ -1,0 +1,9 @@
+- apt: name=python3-pip state=present
+- apt: name={{deb_packages}} state=present
+  name: Installing Debian dependencies for Carthage
+- pip:
+    name: '{{pypi_packages}}'
+    state: present
+    extra_args: '--break-system-packages'
+  name: install Python packages
+  
