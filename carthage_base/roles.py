@@ -72,7 +72,7 @@ class CarthageServerRole(ImageRole):
 
         @inject(injector=Injector)
         def carthage_server_vars(injector):
-            from carthage.deployment import gen_requirements, gen_os_dependencies
+            from carthage.carthage_deployment import gen_requirements, gen_os_dependencies
             return dict(
                 deb_packages=",".join(injector(gen_os_dependencies)),
                 pypi_packages=injector(gen_requirements))
