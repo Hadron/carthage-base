@@ -21,6 +21,8 @@ from carthage.modeling.utils import setattr_default # xxx this should move somew
 from carthage.oci import *
 from carthage.podman import *
 
+resources_dir = Path(__file__).parent.joinpath('resources')
+
 __all__ = []
 
 @dataclasses.dataclass(frozen=True)
@@ -413,3 +415,11 @@ class ProxyServiceRole(MachineModel, AsyncInjectable, template=True):
     
             
 __all__ += ['ProxyServiceRole']
+
+def le_staging_cert_info():
+    for tag in 'letsencrypt-stg-root-x1', 'letsencrypt-stg-root-x2':
+        yield tag, resources_dir.joinpath(tag+'.pem').read_text()
+
+LetsEncryptStagingCustomization = carthage.pki.install_root_cert_customization(le_staging_cert_info)
+
+__all__ += ['LetsEncryptStagingCustomization']
