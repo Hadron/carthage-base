@@ -333,7 +333,7 @@ class Bind9Role(MachineModel, template=True):
 
         @setup_task('Generate needed tsig keys')
         async def generate_tsig_keys(self, invalidate=False):
-            key_path = self.path/"etc/bind/keys"
+            key_path = self.path/"etc/bind/tsig-keys"
             key_path.mkdir(exist_ok=True)
             for k in self.model.tsig_keys:
                 assert carthage.utils.validate_shell_safe(k)
@@ -341,20 +341,20 @@ class Bind9Role(MachineModel, template=True):
                 if invalidate or not this_key_path.exists():
                     await self.run_command(
                         'sh', '-c',
-                        f'tsig-keygen {k} >/etc/bind/keys/{k}.key'
+                        f'tsig-keygen {k} >/etc/bind/tsig-keys/{k}.key'
                         )
                     await self.run_command(
                         'chown', 'bind',
-                        f'/etc/bind/keys/{k}.key')
+                        f'/etc/bind/tsig-keys/{k}.key')
                     await self.run_command(
                         'chmod', '600',
-                        f'/etc/bind/keys/{k}.key')
+                        f'/etc/bind/tsig-keys/{k}.key')
 
         @generate_tsig_keys.check_completed()
         async def generate_tsig_keys(self):
             # We do not return last_run because rerunning the task is not guaranteed to change stat times on the files
             async with self.host.filesystem_access() as path:
-                key_path = path/"etc/bind/keys"
+                key_path = path/"etc/bind/tsig-keys"
                 for k in self.model.tsig_keys:
                     if not key_path.joinpath(f'{k}.key').exists():
                         return False
@@ -362,7 +362,7 @@ class Bind9Role(MachineModel, template=True):
 
         @setup_task("Gather tsig keys for model")
         async def gather_tsig_keys(self):
-            key_dir = self.path/"etc/bind/keys"
+            key_dir = self.path/"etc/bind/tsig-keys"
             model_key_dir = self.model.stamp_path/"tsig_keys"
             model_key_dir.mkdir(mode=0o700, exist_ok=True)
             for k in self.model.tsig_keys:
@@ -376,7 +376,7 @@ class Bind9Role(MachineModel, template=True):
         async def gather_tsig_keys(self):
             last = 0.0
             async with self.host.filesystem_access() as path:
-                key_path = path/"etc/bind/keys"
+                key_path = path/"etc/bind/tsig-keys"
                 model_key_path = self.model.stamp_path/"tsig_keys"
                 if not model_key_path.exists(): return False
                 for k in self.model.tsig_keys:
