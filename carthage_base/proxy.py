@@ -336,7 +336,7 @@ class ProxyServerRole(MachineModel, ProxyImageRole, template=True):
                     found_addresses = True
                 await self.ainjector(
                     carthage.dns.update_dns_for,
-                        s.public_name,
+                        public_name=s.public_name,
                         public_records=public_records,
                         private_records=private_records,
                 ttl=config.dns_ttl)
