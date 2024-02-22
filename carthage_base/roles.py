@@ -12,6 +12,7 @@ import types
 import carthage
 import carthage.systemd
 from carthage import *
+from carthage.local import LocalMachineMixin
 from carthage.modeling import *
 from carthage.ssh import SshKey
 from carthage.ansible import *
