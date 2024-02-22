@@ -1,7 +1,7 @@
 - hostname: name={{inventory_hostname}}
   ignore_errors: true
 - name: install software
-  apt: name=nfs-common,libvirt-daemon-system,ovmf,qemu-kvm,git,dosfstools,tmux state=present cache_valid_time=3600
+  apt: name=nfs-common,libvirt-daemon-system,ovmf,git,dosfstools,tmux state=present cache_valid_time=3600
 - name: install fai-server
   apt: install_recommends=no name=fai-server state=present
 - name: enable nested virtualization
