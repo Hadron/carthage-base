@@ -97,7 +97,7 @@ class AcesMachine(MachineModel, template = True):
         except AttributeError: self.network.domain = self.injector.get_instance(InjectionKey("domain"))
         slot =  hadron.carthage.fake_slot_for_model(self, netid = 1, role =self.hadron_role)
         slot.os = getattr(self,'hadron_os',"Debian")
-        slot.release = getattr(self, 'hadron_release', "bullseye")
+        slot.release = getattr(self, 'hadron_release', "bookworm")
         slot.track = getattr(self, 'hadron_track', "snapshot")
         return slot
 
