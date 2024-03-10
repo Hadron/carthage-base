@@ -425,9 +425,8 @@ class PostgresRole(MachineModel, template=True):
 
         @setup_task("Install Postgres")
         async def install_postgres(self):
-            await self.run_command(
-                'apt', '-y', 'install',
-                'postgresql')
+            await self.run_command('apt-get', 'update')
+            await self.run_command('apt-get', '-y', 'install', 'postgresql')
 
         @setup_task("Set up database and user")
         async def setup_database(self):
