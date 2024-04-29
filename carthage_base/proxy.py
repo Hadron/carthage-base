@@ -59,6 +59,8 @@ class ProxyService(InjectableModel):
     def __post_init__(self):
         object.__setattr__(self, 'upstream_url', urlparse(self.upstream))
         object.__setattr__(self, 'downstream_url', urlparse(self.downstream))
+        if '.' not in self.downstream_server:
+            raise ValueError(f'downstream server for {self} must be a valid FQDN')
 
     @property
     def upstream_server(self):
