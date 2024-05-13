@@ -374,7 +374,6 @@ class ProxyServiceRole(MachineModel, AsyncInjectable, template=True):
 
         '''
         config = await self.ainjector.get_instance_async(ProxyConfig)
-        host_model = await self.machine.container_host.ainjector.get_instance_async(InjectionKey(container_host_model_key, _optional=True))
         ports = self.injector.filter_instantiate(OciExposedPort, ['container_port'])
         fallback_addr_uses_host_port = False
         fallback_addr = getattr(self, 'proxy_address', None)
