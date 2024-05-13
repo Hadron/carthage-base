@@ -124,6 +124,8 @@ class ProxyImageRole(ImageRole):
 
     class proxy_customizations(FilesystemCustomization):
 
+        runas_user = 'root'
+        
         @setup_task("Install Software")
         async def install_software(self):
             await self.run_command(
@@ -170,6 +172,8 @@ class CertbotCertRole(ImageRole, SetupTaskMixin, AsyncInjectable):
 
     class install_certbot(FilesystemCustomization):
 
+        runas_user = 'root'
+        
         @setup_task("Install Certbot")
         async def install_certbot_task(self):
             await self.run_command('apt', 'update')
@@ -235,6 +239,8 @@ class PkiCertRole(ImageRole, AsyncInjectable):
         )
     class install_certs_cust(FilesystemCustomization):
 
+        runas_user = 'root'
+        
         @setup_task("Install and Generate Certificates")
         async def install_certs(self):
             if not isinstance(self.model, MachineModel): raise SkipSetupTask
@@ -312,6 +318,7 @@ class ProxyServerRole(MachineModel, ProxyImageRole, template=True):
         return config.certs_by_server()
 
     class proxy_server_cust(FilesystemCustomization):
+        runas_user = 'root'
         install_mako = install_mako_task('model')
 
         @setup_task("Update dns for proxied services")
