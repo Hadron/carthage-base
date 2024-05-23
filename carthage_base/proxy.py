@@ -181,6 +181,11 @@ class CertbotCertRole(ImageRole, SetupTaskMixin, AsyncInjectable):
                 'apt', '-y', 'install',
                 'certbot', 'python3-certbot-apache'
                 )
+            fn = self.path/'etc/letsencrypt/renewal-hooks/deploy/10-apache'
+            fn.parent.mkdir(parents=True, exist_ok=True)
+            with fn.open('w') as f:
+                f.write('#!/bin/bash\n\nservice apache2 reload\n')
+            await self.run_command('chmod', 'a+x', '/etc/letsencrypt/renewal-hooks/deploy/10-apache')
 
         @setup_task("get certificates")
         async def get_certificates(self):
