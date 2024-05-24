@@ -354,8 +354,19 @@ class ProxyServerRole(MachineModel, ProxyImageRole, template=True):
             
 __all__ += ['ProxyServerRole']
 
+class ProxySystemDependency(SystemDependency):
+
+    name = 'proxy_dependency'
+
+    async def __call__(self, ainjector):
+        config = await ainjector.get_instance_async(ProxyConfig)
+        await config.server.machine.async_become_ready()
+        if not await config.server.machine.is_machine_running():
+            await config.server.machine.start_machine()
+
 class ProxyServiceRole(MachineModel, AsyncInjectable, template=True):
 
+    add_provider(ProxySystemDependency())
     async def register_container_proxy_services(self):
         '''
 
