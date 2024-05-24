@@ -82,10 +82,13 @@ class ProxyConfig(InjectableModel):
 
     #: TTL for dns records
     dns_ttl = 30
+    server: MachineModel
+    
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.services = {}
         self.certificates = []
+        self.server = None
 
     def add_proxy_service(self, service:ProxyService):
         self.services[service.upstream] = service
@@ -93,7 +96,12 @@ class ProxyConfig(InjectableModel):
     def add_certificate(self, cert:CertInfo):
         self.certificates = list(filter( lambda c: c.cert_file != cert.cert_file, self.certificates))
         self.certificates.append(cert)
-        
+
+    def set_server(self, server:MachineModel):
+        if self.server:
+            raise RuntimeError('Server already set')
+        self.server = server
+
     def by_downstream_server_path(self):
         result = {}
         for s in self.services.values():
@@ -318,6 +326,11 @@ class ProxyServerRole(MachineModel, ProxyImageRole, template=True):
     async def certs_by_domain(config):
         return config.certs_by_server()
 
+    async def resolve_model(self):
+        await super().resolve_model()
+        config = await self.ainjector.get_instance_async(ProxyConfig)
+        config.set_server(self)
+        
     class proxy_server_cust(FilesystemCustomization):
         runas_user = 'root'
         install_mako = install_mako_task('model')
