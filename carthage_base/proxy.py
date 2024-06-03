@@ -98,7 +98,7 @@ class ProxyConfig(InjectableModel):
         self.certificates.append(cert)
 
     def set_server(self, server:MachineModel):
-        if self.server:
+        if self.server and (server is not self.server):
             raise RuntimeError('Server already set')
         self.server = server
 
