@@ -331,8 +331,8 @@ class ProxyServerRole(MachineModel, ProxyImageRole, template=True):
     async def certs_by_domain(config):
         return config.certs_by_server()
 
-    async def resolve_model(self):
-        await super().resolve_model()
+    async def resolve_model(self, *args, **kwargs):
+        await super().resolve_model(*args, **kwargs)
         config = await self.ainjector.get_instance_async(ProxyConfig)
         config.set_server(self)
         
