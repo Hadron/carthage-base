@@ -98,7 +98,7 @@ class ProxyConfig(InjectableModel):
         self.certificates.append(cert)
 
     def set_server(self, server:MachineModel):
-        if self.server:
+        if self.server and (server is not self.server):
             raise RuntimeError('Server already set')
         self.server = server
 
@@ -390,7 +390,7 @@ class ProxyServiceRole(MachineModel, AsyncInjectable, template=True):
 
         Based on :class:`ports a container exposes <OciExposedPort>`, infer :class:`ProxyServices` to configure for a container providing a service.
 
-        If port 80, 8080,  or 443 are exposed, then register a service.  The following options will be used for the upstream proxy address in decreasing priority order:
+        If port 80, 8080, 443, or 8443 are exposed, then register a service.  The following options will be used for the upstream proxy address in decreasing priority order:
 
         * if a *host_ip* is specified in the :class:`OciExposedPort`, then that IP and the *host_port* will be used.
 
@@ -400,28 +400,41 @@ class ProxyServiceRole(MachineModel, AsyncInjectable, template=True):
 
         * if *ip_address* is set on the model, it will be used with the *container_port*.
 
+        * if the proxy server has a network in common with the container, use the IPv4 address of the container on that network.
+
         * If the container is a : class:`carthage.podman.PodmanContainer`, then ``host.containers.internal`` will be used with the *host_port*.
 
         '''
+
+        def shared_network_links(m1, m2):
+            for l1 in m1.values():
+                for l2 in m2.values():
+                    if l1.merged_v4_config.network == l2.merged_v4_config.network:
+                        yield l1, l2
+
         config = await self.ainjector.get_instance_async(ProxyConfig)
         ports = self.injector.filter_instantiate(OciExposedPort, ['container_port'])
+
         fallback_addr_uses_host_port = False
         fallback_addr = getattr(self, 'proxy_address', None)
         if fallback_addr:
             fallback_addr_uses_host_port = getattr(self, 'proxy_address_uses_host_port', False)
         else:
             fallback_addr = getattr(self, 'ip_address', None)
+            if fallback_addr is None:
+                for l1, l2 in shared_network_links(self.network_links, config.server.network_links):
+                    fallback_addr = l1.merged_v4_config.address
             if fallback_addr is None \
                and issubclass(self.machine_type, PodmanContainer):
                 fallback_addr = 'host.containers.internal'
                 fallback_addr_uses_host_port = True
-                
+
         for key, exposed_port in ports:
-            if exposed_port.container_port not in (80, 8080, 443): continue
+            if exposed_port.container_port not in (80, 8080, 443, 8443): continue
             port = exposed_port.container_port
             host_port = exposed_port.host_port
             if port == 80 or port == 8080: proto ='http'
-            elif port == 443: proto = 'https'
+            elif port == 443 or port == 8443: proto = 'https'
             else: raise ValueError('Unable to figure out protocol')
             upstream_addr = exposed_port.host_ip
             if upstream_addr == '0.0.0.0' or upstream_addr == '127.0.0.1':
