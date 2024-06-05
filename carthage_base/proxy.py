@@ -1,4 +1,4 @@
-# Copyright (C) 2023, Hadron Industries, Inc.
+# Copyright (C) 2023, 2024, Hadron Industries, Inc.
 # Carthage is free software; you can redistribute it and/or modify
 # it under the terms of the GNU Lesser General Public License version 3
 # as published by the Free Software Foundation. It is distributed
@@ -53,9 +53,6 @@ class ProxyService(InjectableModel):
     private_ips: list = None
     public_name: str = None #: The public name under which the service is registered in DNS; if downstream is set, must be the same as the netloc of the downstream URL.
 
-    
-    
-
     def __post_init__(self):
         object.__setattr__(self, 'upstream_url', urlparse(self.upstream))
         object.__setattr__(self, 'downstream_url', urlparse(self.downstream))
@@ -83,13 +80,23 @@ class ProxyConfig(InjectableModel):
     #: TTL for dns records
     dns_ttl = 30
     server: MachineModel
+    services: list[ProxyService]
+    proxied_models: list[MachineModel]
     
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.services = {}
+        self.proxied_models = []
         self.certificates = []
         self.server = None
 
+    def add_proxied_model(self, model):
+        '''
+        Record a MachineModel that should be called to register proxy services.
+        '''
+        if model not in self.proxied_models:
+            self.proxied_models.append(model)
+            
     def add_proxy_service(self, service:ProxyService):
         self.services[service.upstream] = service
 
@@ -331,11 +338,17 @@ class ProxyServerRole(MachineModel, ProxyImageRole, template=True):
     async def certs_by_domain(config):
         return config.certs_by_server()
 
-    async def resolve_model(self, *args, **kwargs):
-        await super().resolve_model(*args, **kwargs)
-        config = await self.ainjector.get_instance_async(ProxyConfig)
-        config.set_server(self)
-        
+    async def resolve_model(self, force=False):
+        await super().resolve_model(force=force)
+        self.proxy_config = await self.ainjector.get_instance_async(ProxyConfig)
+        self.proxy_config.set_server(self)
+
+    async def async_ready(self):
+        await self.resolve_model(False)
+        for model in self.proxy_config.proxied_models:
+            await model.register_proxy_map(self.proxy_config)
+        await super().async_ready()
+
     class proxy_server_cust(FilesystemCustomization):
         runas_user = 'root'
         install_mako = install_mako_task('model')
@@ -385,7 +398,8 @@ class ProxySystemDependency(SystemDependency):
 class ProxyServiceRole(MachineModel, AsyncInjectable, template=True):
 
     add_provider(ProxySystemDependency())
-    async def register_container_proxy_services(self):
+
+    async def register_container_proxy_services(self, config:ProxyConfig):
         '''
 
         Based on :class:`ports a container exposes <OciExposedPort>`, infer :class:`ProxyServices` to configure for a container providing a service.
@@ -453,16 +467,15 @@ class ProxyServiceRole(MachineModel, AsyncInjectable, template=True):
                 public_name=self.name,
                 ))
 
-    async def register_proxy_map(self):
+    async def register_proxy_map(self, config:ProxyConfig):
         # Long term this should be expanded to allow the model to override proxy services, or specify them if the model will not be implemented by a container.
         # For now all we support is the container logic
-        await self.register_container_proxy_services()
+        await self.register_container_proxy_services(config)
 
-    async def resolve_networking(self, force=False):
-        await super().resolve_networking(force=force)
-        # register the proxy services at this phase, because it is guaranteed to always happen on layout initialization
-        # Resolve networking might better be thought of as a phase where models announce properties that influence other models, but we have not actually caught up with that concept
-        await self.register_proxy_map()
+    async def resolve_model(self, force=False):
+        await super().resolve_model(force=force)
+        self.proxy_config = await self.ainjector.get_instance_async(ProxyConfig)
+        self.proxy_config.add_proxied_model(self)
     
             
 __all__ += ['ProxyServiceRole']
