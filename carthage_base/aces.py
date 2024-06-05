@@ -58,6 +58,7 @@ class AcesIntegration(ModelTasks):
     @setup_task("make download")
     async def make_download(self):
         repo_path = Path(self.config_layout.checkout_dir)/"hadron-operations"
+        packages_path = repo_path/"ansible/packages"
         stamp_path = self.stamp_path
         os.makedirs(self.stamp_path, exist_ok=True)
         try: stamp_path.joinpath("packages").symlink_to(repo_path/"ansible/packages")
@@ -67,11 +68,17 @@ class AcesIntegration(ModelTasks):
         try:         stamp_path.joinpath("output").symlink_to(self.config_layout.output_dir)
         except FileExistsError: pass
         os.makedirs(repo_path.joinpath("ansible/packages"), exist_ok=True)
-        await sh.make(
-            "download",
-            _bg = True,
-            _bg_exc = False,
-            _cwd  = str(repo_path))
+        try:
+            await sh.make(
+                "download",
+                _bg = True,
+                _bg_exc = False,
+                _cwd  = str(repo_path))
+        except sh.ErrorReturnCode:
+            if packages_path.glob("*.deb"):
+                pass
+            else:
+                raise
         return
     async def async_ready(self):
         await self.run_setup_tasks()
