@@ -170,7 +170,7 @@ class CertbotCertRole(ImageRole, SetupTaskMixin, AsyncInjectable):
     certbot_email = None
     certbot_production_certificates = True
 
-    async def async_ready(self):
+    async def setup_certificate_info(self):
         self.cert_info = None
         if isinstance(self, MachineModel):
             config = await self.ainjector.get_instance_async(ProxyConfig)
@@ -183,7 +183,7 @@ class CertbotCertRole(ImageRole, SetupTaskMixin, AsyncInjectable):
                 domains=tuple(domains)
                                   )
                 config.add_certificate(self.cert_info)
-        return await super().async_ready()
+        return await super().setup_certificate_info()
 
     class install_certbot(FilesystemCustomization):
 
@@ -241,7 +241,7 @@ class PkiCertRole(ImageRole, AsyncInjectable):
     '''Populate certs with :class:`carthage.pki.PkiManager`, a very simple CA that stores state in *state_dir*.
     '''
     
-    async def async_ready(self):
+    async def setup_certificate_info(self):
         if isinstance(self, MachineModel):
             config = await self.ainjector.get_instance_async(ProxyConfig)
             setattr_default(self, 'pki_manager_domains', [])
@@ -252,7 +252,7 @@ class PkiCertRole(ImageRole, AsyncInjectable):
                     key_file=f'/etc/pki/{domain}',
                     domains=(domain,),
                 ))
-        return await super().async_ready()
+        return await super().setup_certificate_info()
 
     @inject_autokwargs(
         pki=InjectionKey(carthage.pki.PkiManager,_ready=True),
@@ -347,8 +347,17 @@ class ProxyServerRole(MachineModel, ProxyImageRole, template=True):
         await self.resolve_model(False)
         for model in self.proxy_config.proxied_models:
             await model.register_proxy_map(self.proxy_config)
+        await self.setup_certificate_info()
         await super().async_ready()
 
+    async def setup_certificate_info(self):
+        '''
+        Called after all proxy services have been registered to actually populate ProxyConfig.certificates.
+        A stub; implemented in certificate roles.
+        '''
+        if hasattr(super(), 'setup_certificate_info'):
+            raise TypeError('ProxyServerRole needs to come to the right of any certificate provider.')
+        
     class proxy_server_cust(FilesystemCustomization):
         runas_user = 'root'
         install_mako = install_mako_task('model')
