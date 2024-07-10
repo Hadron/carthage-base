@@ -106,7 +106,7 @@ class ProxyConfig(InjectableModel):
 
     def set_server(self, server:MachineModel):
         if self.server and (server is not self.server):
-            raise RuntimeError('Server already set')
+            raise RuntimeError(f'server already set; refusing to modify from {self.server} to {server}')
         self.server = server
 
     def by_downstream_server_path(self):
