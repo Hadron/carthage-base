@@ -276,8 +276,22 @@ class PkiCertRole(ImageRole, AsyncInjectable):
 __all__ += ['PkiCertRole']
 
 
-class ProxyServerRole(MachineModel, ProxyImageRole, template=True):
+class ProxyProtocol(MachineModel, template=True):
 
+    '''
+    Responsible for implementing the proxy side of :class:`ProxyServiceRole`. This protocol includes:
+
+    * Register the proxy as the server in the :class:`ProxyConfig` at model resolution time
+
+    * At :meth:`async_ready` time, ask each*ProxyServiceRole* to register its proxy map.
+
+    * Providing code to update proxy DNS. Note this code is not hooked into a setup_task by this protocol class; that is the job of the actual proxy implementation.
+
+    '''
+
+    #: If True, updateproxy dns whenever the machine starts
+    update_dns_on_start:bool = True
+    
     #: A list of public IPs or a function returning public_ips
     proxy_public_ips: typing.Union[typing.Callable, list]
     @inject(host_model=InjectionKey(container_host_model_key, _optional=True))
@@ -320,6 +334,67 @@ class ProxyServerRole(MachineModel, ProxyImageRole, template=True):
             logger.warn(f'{self.name} could not find container_host_model; no addresses.  Set container_host_model_key appropriately.')
             return []
 
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.injector.add_event_listener(InjectionKey(Machine), ['start_machine'], self.update_proxy_dns_event)
+        
+    async def resolve_model(self, force=False):
+        await super().resolve_model(force=force)
+        self.proxy_config = await self.ainjector.get_instance_async(ProxyConfig)
+        self.proxy_config.set_server(self)
+
+    async def async_ready(self):
+        await self.resolve_model(False)
+        for model in self.proxy_config.proxied_models:
+            await model.register_proxy_map(self.proxy_config)
+        await self.setup_certificate_info()
+        await super().async_ready()
+
+    async def update_proxy_dns_event(self, **kwargs):
+        '''
+        An event handler.  If this model is configured to update DNS on machine start, then update DNS by calling update_prxy_dns.
+        '''
+        if self.update_dns_on_start:
+            await self.update_proxy_dns()
+            
+    async def update_proxy_dns(self):
+        '''
+        Should be called from a context where the IP addresses are available; for cloud instances this probably means that the implementation of this model is running.
+        Updates DNS records for all proxy services registered with this model.
+        '''
+        
+        config = self.proxy_config
+        logger.debug('Updating Proxy DNS for %s', self.name)
+        found_addresses = False
+        for s in config.services.values():
+            if not s.public_name : continue
+            public_ips = s.public_ips
+            if public_ips is None: public_ips = self.proxy_public_ips
+            private_ips = s.private_ips
+            if private_ips is None: private_ips = self.proxy_private_ips
+            if callable(public_ips):
+                public_ips = await self.ainjector(public_ips)
+            public_records = None
+            private_records = None
+            logger.info('Update DNS for proxied service %s', s.public_name)
+            if  public_ips:
+                public_records=[('A', public_ips)]
+            if callable(private_ips):
+                private_ips = await self.ainjector(private_ips)
+            if private_ips:
+                private_records = [('A', private_ips)]
+            if public_ips or private_ips:
+                found_addresses = True
+                await self.ainjector(
+                    carthage.dns.update_dns_for,
+                        public_name=s.public_name,
+                        public_records=public_records,
+                        private_records=private_records,
+                ttl=config.dns_ttl)
+        return found_addresses
+
+class ProxyServerRole(ProxyProtocol, ProxyImageRole, template=True):
+
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -338,17 +413,6 @@ class ProxyServerRole(MachineModel, ProxyImageRole, template=True):
     async def certs_by_domain(config):
         return config.certs_by_server()
 
-    async def resolve_model(self, force=False):
-        await super().resolve_model(force=force)
-        self.proxy_config = await self.ainjector.get_instance_async(ProxyConfig)
-        self.proxy_config.set_server(self)
-
-    async def async_ready(self):
-        await self.resolve_model(False)
-        for model in self.proxy_config.proxied_models:
-            await model.register_proxy_map(self.proxy_config)
-        await self.setup_certificate_info()
-        await super().async_ready()
 
     async def setup_certificate_info(self):
         '''
@@ -362,35 +426,6 @@ class ProxyServerRole(MachineModel, ProxyImageRole, template=True):
         runas_user = 'root'
         install_mako = install_mako_task('model')
 
-        @setup_task("Update dns for proxied services")
-        @inject(config=ProxyConfig)
-        async def update_dns(self, config):
-            found_addresses = False
-            for s in config.services.values():
-                if not s.public_name : continue
-                public_ips = s.public_ips
-                if public_ips is None: public_ips = self.model.proxy_public_ips
-                private_ips = s.private_ips
-                if private_ips is None: private_ips = self.model.proxy_private_ips
-                if callable(public_ips):
-                    public_ips = await self.ainjector(public_ips)
-                public_records = None
-                private_records = None
-                if  public_ips:
-                        public_records=[('A', public_ips)]
-                if callable(private_ips):
-                    private_ips = await self.ainjector(private_ips)
-                if private_ips:
-                    private_records = [('A', private_ips)]
-                if public_ips or private_ips:
-                    found_addresses = True
-                await self.ainjector(
-                    carthage.dns.update_dns_for,
-                        public_name=s.public_name,
-                        public_records=public_records,
-                        private_records=private_records,
-                ttl=config.dns_ttl)
-            if not found_addresses: raise SkipSetupTask
             
 __all__ += ['ProxyServerRole']
 
