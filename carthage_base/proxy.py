@@ -13,7 +13,7 @@ import typing
 from urllib.parse import urlparse
 from ipaddress import IPv4Address
 import carthage.dns
-import carthage.pki
+import carthage.pki as pki
 from carthage import *
 from carthage.modeling import *
 from carthage.utils import memoproperty, possibly_async
@@ -167,6 +167,8 @@ class CertbotCertRole(ImageRole, SetupTaskMixin, AsyncInjectable):
     
     '''
 
+    add_provider(pki.contact_trust_store_key, pki.LetsencryptTrustStore)
+
     certbot_email = None
     certbot_production_certificates = True
 
@@ -234,13 +236,19 @@ class CertbotCertRole(ImageRole, SetupTaskMixin, AsyncInjectable):
             
 
 __all__ += ['CertbotCertRole']
+@inject(pki=InjectionKey(pki.PkiManager, _ready=True))
+async def  pki_manager_contact_trust_store(pki):
+    return await pki.ainjector.get_instance_async(pki.contact_trust_store_key)
 
+    
         
 class PkiCertRole(ImageRole, AsyncInjectable):
 
     '''Populate certs with :class:`carthage.pki.PkiManager`, a very simple CA that stores state in *state_dir*.
     '''
-    
+
+    add_provider(pki.contact_trust_store_key, pki_manager_contact_trust_store)
+
     async def setup_certificate_info(self):
         if isinstance(self, MachineModel):
             config = await self.ainjector.get_instance_async(ProxyConfig)
@@ -255,7 +263,7 @@ class PkiCertRole(ImageRole, AsyncInjectable):
         return await super().setup_certificate_info()
 
     @inject_autokwargs(
-        pki=InjectionKey(carthage.pki.PkiManager,_ready=True),
+        pki=InjectionKey(pki.PkiManager,_ready=True),
         )
     class install_certs_cust(FilesystemCustomization):
 
@@ -270,7 +278,7 @@ class PkiCertRole(ImageRole, AsyncInjectable):
             for d in self.model.pki_manager_domains:
                 domain_path = pki_path/d
                 if domain_path.exists(): continue
-                c = await possibly_async(self.pki.credentials(d))
+                c = await self.pki.issue_credentials_onefile(d, f'PkiCertsRole {self.model.name}')
                 domain_path.write_text(c)
                 
 __all__ += ['PkiCertRole']
@@ -395,7 +403,7 @@ class ProxyProtocol(MachineModel, template=True):
 
 class ProxyServerRole(ProxyProtocol, ProxyImageRole, template=True):
 
-
+    self_provider(InjectionKey(ProxyProtocol))
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.injector.replace_provider(InjectionKey('by_server_path'), self.by_server_path)
@@ -438,10 +446,22 @@ class ProxySystemDependency(SystemDependency):
         await config.server.machine.async_become_ready()
         if not await config.server.machine.is_machine_running():
             await config.server.machine.start_machine()
+@inject(config=ProxyConfig)
+def find_proxy_server(config):
+    '''
+    Added to the ProxyServiceInjector so that asking for ProxyProtocol from any proxy service will yield the proxy it is using. This function (and thus that provider) will fail if called before the proxy model is resolved.
+    '''
+    return config.server
 
 class ProxyServiceRole(MachineModel, AsyncInjectable, template=True):
 
     add_provider(ProxySystemDependency())
+    add_provider(InjectionKey(ProxyProtocol), find_proxy_server)
+    add_provider(pki.contact_trust_store_key, injector_xref(
+        InjectionKey(ProxyProtocol),
+        pki.contact_trust_store_key))
+    
+    
 
     async def register_container_proxy_services(self, config:ProxyConfig):
         '''
