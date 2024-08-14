@@ -236,9 +236,10 @@ class CertbotCertRole(ImageRole, SetupTaskMixin, AsyncInjectable):
             
 
 __all__ += ['CertbotCertRole']
-@inject(pki=InjectionKey(pki.PkiManager, _ready=True))
-async def  pki_manager_contact_trust_store(pki):
-    return await pki.ainjector.get_instance_async(pki.contact_trust_store_key)
+
+@inject(manager=InjectionKey(pki.PkiManager, _ready=True))
+async def  pki_manager_contact_trust_store(manager):
+    return await manager.trust_store()
 
     
         
