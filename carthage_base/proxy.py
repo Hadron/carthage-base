@@ -396,7 +396,8 @@ class ProxyProtocol(MachineModel, template=True):
                 found_addresses = True
                 await self.ainjector(
                     carthage.dns.update_dns_for,
-                        public_name=s.public_name,
+                        public_name=s.public_name if public_records else None,
+                    private_name=s.public_name if private_records else None,
                         public_records=public_records,
                         private_records=private_records,
                 ttl=config.dns_ttl)
