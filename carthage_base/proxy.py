@@ -106,7 +106,7 @@ class ProxyConfig(InjectableModel):
 
     def set_server(self, server:MachineModel):
         if self.server and (server is not self.server):
-            raise RuntimeError('Server already set')
+            raise RuntimeError(f'server already set; refusing to modify from {self.server} to {server}')
         self.server = server
 
     def by_downstream_server_path(self):
@@ -243,7 +243,7 @@ async def  pki_manager_contact_trust_store(manager):
 
     
         
-class PkiCertRole(ImageRole, AsyncInjectable):
+class PkiCertRole(ImageRole, SetupTaskMixin, AsyncInjectable):
 
     '''Populate certs with :class:`carthage.pki.PkiManager`, a very simple CA that stores state in *state_dir*.
     '''
