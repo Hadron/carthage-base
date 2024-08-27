@@ -243,7 +243,7 @@ async def  pki_manager_contact_trust_store(manager):
 
     
         
-class PkiCertRole(ImageRole, AsyncInjectable):
+class PkiCertRole(ImageRole, SetupTaskMixin, AsyncInjectable):
 
     '''Populate certs with :class:`carthage.pki.PkiManager`, a very simple CA that stores state in *state_dir*.
     '''
