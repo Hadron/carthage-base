@@ -12,14 +12,14 @@ from carthage.ansible import *
 
 from .images import *
 from .hosted import *
-from carthage.vm import vm_image
+from carthage.vm import vm_image_key
 
 __all__ = []
 
 class CarthageMirrorsVm(LinuxMachine):
 
     add_provider(machine_implementation_key, HostedVm)
-    add_provider(vm_image, debian_vm_image, transclusion_overrides=True)
+    add_provider(vm_image_key, debian_vm_image, transclusion_overrides=True)
     add_provider(DebianImage, transclusion_overrides=True)
         
 

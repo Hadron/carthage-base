@@ -10,7 +10,7 @@ from carthage import *
 from carthage.modeling import *
 import carthage
 from carthage.debian import *
-from carthage.vm import vm_image
+from carthage.vm import vm_image_key
 from carthage.systemd import SystemdNetworkModelMixin
 from pathlib import Path
 from carthage import debian
@@ -84,7 +84,7 @@ __all__ += ['DebianImage']
 
          
 
-@provides(vm_image)
+@provides(vm_image_key)
 @inject(ainjector = AsyncInjector,
         image = DebianImage)
 async def debian_vm_image(ainjector, image):
