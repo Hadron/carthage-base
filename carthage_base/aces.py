@@ -17,10 +17,10 @@ import os
 from carthage import *
 from carthage import sh
 from carthage.modeling import *
+from carthage.podman.modeling import *
 from carthage.ansible import *
 from carthage.utils import memoproperty
 from hadron.carthage.tasks import *
-from hadron.carthage.images import HadronImageMixin
 from pathlib import Path
 
 from .images import DebianImage
@@ -140,18 +140,38 @@ class AcesMachine(MachineModel, template = True):
 
 __all__ = ['AcesIntegration', 'AcesMachine']
 
-class AcesCustomizations( HadronImageMixin):
+class AcesCustomizations( FilesystemCustomization):
+    description = 'Enable ACES software'
 
-    @setup_task("re-enable systemd-networkd and systemd-resolved")
-    async def enable_systemd_services(self):
-        await self.container_command(
-            "/bin/systemctl", "enable",
-            "systemd-networkd", "systemd-networkd.socket",
-            "systemd-resolved")
-        try:
-            await self.container_command("/usr/bin/apt", "-y", "purge", "haveged")
-        except: pass
+    @setup_task('Install basic dependencies')
+    async def install_dependencies(self):
+        await self.run_command(
+            'apt',
+            'update')
+        await self.run_command(
+            'apt', '-y', 'install',
+            'ansible',
+            'rsync',
+            'systemd',
+            )
 
+    aces_distribution = aces_distribution_task(use_config=True)
+    
+
+
+@inject(base_image=None)
+class AcesPodmanImage(PodmanImageModel):
+
+    base_image = 'debian:unstable'
+    oci_image_tag = 'localhost/aces:latest'
+    oci_command = ['/bin/systemd']
+    hadron_os = 'Debian'
+    hadron_release = 'trixie'
+    hadron_track = 'unstable'
+    
+    aces_customizations = AcesCustomizations
+
+__all__ += ['AcesPodmanImage']
 
 class AcesBaseImage(DebianImage):
 
