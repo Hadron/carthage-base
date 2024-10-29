@@ -20,6 +20,7 @@ from carthage.modeling import *
 from carthage.podman.modeling import *
 from carthage.ansible import *
 from carthage.utils import memoproperty
+from carthage.image import SshAuthorizedKeyCustomizations
 from hadron.carthage.tasks import *
 from pathlib import Path
 
@@ -150,7 +151,7 @@ class AcesCustomizations( FilesystemCustomization):
             'update')
         await self.run_command(
             'apt', '-y', 'install',
-            'ansible',
+            'python3',
             'rsync',
             'systemd',
             )
@@ -162,14 +163,15 @@ class AcesCustomizations( FilesystemCustomization):
 @inject(base_image=None)
 class AcesPodmanImage(PodmanImageModel):
 
-    base_image = 'debian:unstable'
+    base_image = 'debian:trixie'
     oci_image_tag = 'localhost/aces:latest'
-    oci_command = ['/bin/systemd']
+    oci_image_command = ['/lib/systemd/systemd']
     hadron_os = 'Debian'
     hadron_release = 'trixie'
     hadron_track = 'unstable'
     
     aces_customizations = AcesCustomizations
+    authorized_keys = SshAuthorizedKeyCustomizations
 
 __all__ += ['AcesPodmanImage']
 
