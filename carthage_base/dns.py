@@ -1,4 +1,4 @@
-# Copyright (C) 2022, Hadron Industries, Inc.
+# Copyright (C) 2022, 2024, Hadron Industries, Inc.
 # Carthage is free software; you can redistribute it and/or modify
 # it under the terms of the GNU Lesser General Public License version 3
 # as published by the Free Software Foundation. It is distributed
@@ -26,12 +26,18 @@ class Bind9DnsZone(InjectableModel, DnsZone):
             raise ValueError('Instantiating a zone without update_keys does not make sense')
         self.zone_info = zone_info
 
+    @property
+    def key_path(self):
+        '''
+        returns the Path to an update key for this zone.
+        '''
+        return self.model.key_path(self.zone_info.update_keys[0])
+
 
     async def update_records(self, *args, ttl=300):
         await self.async_become_ready()
         await self.model.machine.async_become_ready()
         if not self.model.machine.running: await self.model.machine.start_machine()
-        key_path = self.model.key_path(self.zone_info.update_keys[0])
         update = f"zone {self.name}\n"
         try:
             server = self.zone_info.update_server
@@ -51,7 +57,7 @@ class Bind9DnsZone(InjectableModel, DnsZone):
                 update += f"add {name} {ttl} IN {rrtype} {v}\n"
         update += "send\n"
 
-        await sh.nsupdate('-k', key_path,
+        await sh.nsupdate('-k', self.key_path,
                           _in=update,
                           _bg=True, _bg_exc=False)
         
