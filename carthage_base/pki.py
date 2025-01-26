@@ -1,30 +1,26 @@
-# Copyright (C) 2018, 2019, 2020, 2021, 2022, Hadron Industries, Inc.
+# Copyright (C) 2018, 2019, 2020, 2021, 2022, 2025, Hadron Industries, Inc.
 # Carthage is free software; you can redistribute it and/or modify
 # it under the terms of the GNU Lesser General Public License version 3
 # as published by the Free Software Foundation. It is distributed
 # WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the file
 # LICENSE for details.
+import asyncio
+import contextlib
 from pathlib import Path
+import re
 
 from carthage import *
+from carthage.pki import PkiManager
 from carthage.modeling import *
 from carthage.ansible import ansible_role_task
 import carthage.setup_tasks
+from carthage.pki import *
+
 
 __all__ = []
 
-class CertificateAuthority(InjectableModel):
-
-    async def ca_cert_pem(self):
-        raise NotImplementedError
-
-    async def certify(self, dns_name):
-        raise NotImplementedError
-
-__all__ += ['CertificateAuthority']
-
-@inject(ca=InjectionKey(CertificateAuthority, _ready=True))
+@inject(pki=InjectionKey(PkiManager, _ready=True))
 class CertificateInstallationTask(carthage.setup_tasks.TaskWrapperBase):
 
     key_dir: Path
@@ -53,13 +49,15 @@ class CertificateInstallationTask(carthage.setup_tasks.TaskWrapperBase):
         return self.key_dir/self.stem
     
         
-    async def func(self, instance, ca):
+    async def func(self, instance, pki):
         dns_name = instance.name
         carthage.utils.validate_shell_safe(dns_name)
         cust = await instance.ainjector(FilesystemCustomization, instance)
         async with cust.customization_context:
-            key, cert = await ca.certify(dns_name)
-            ca_pem = await ca.ca_cert_pem()
+            key, cert = await pki.issue_credentials(dns_name)
+            trust_store = await  pki.trust_store()
+            ca_file = await trust_store.ca_file()
+            ca_pem = ca_file.read_text()
             if not self.stem: self.stem = f'{dns_name}.pem'
             cert_dir = cust.path/self.cert_dir
             key_dir = cust.path/self.key_dir
@@ -85,7 +83,7 @@ class CertificateInstallationTask(carthage.setup_tasks.TaskWrapperBase):
 __all__ += ['CertificateInstallationTask']
 
 
-class EntanglementCertificateAuthority(CertificateAuthority, MachineModel, template=True):
+class EntanglementCertificateAuthority(PkiManager, MachineModel, template=True):
 
     class ca_customization(FilesystemCustomization):
 
@@ -117,7 +115,7 @@ class EntanglementCertificateAuthority(CertificateAuthority, MachineModel, templ
                     '--ca-name='+self.ca_name)
                 return pki_dir.joinpath('ca.pem').read_text()
 
-    async def certify(self, dns_name):
+    async def issue_credentials(self, dns_name):
         machine = self.machine
         await machine.async_become_ready()
         cust = await machine.ainjector(FilesystemCustomization, machine)
@@ -133,4 +131,232 @@ class EntanglementCertificateAuthority(CertificateAuthority, MachineModel, templ
             return pki_dir.joinpath(dns_name+'.key').read_text(), \
                 pki_dir.joinpath(dns_name+'.pem').read_text()
 
+    async def trust_store(self):
+        return await self.ainjector(
+            SimpleTrustStore,
+            'entanglement_trust',
+            dict(
+                entanglement_ca=await self.ca_pem()))
+
+    async def certificates(self):
+        async with self.machine.filesystem_access() as path:
+            pki_path = path.joinpath(self.pki_access_dir or self.pki_dir)
+            for pem in pki_dir.glob('*.pem'):
+                yield pem.read_text()
+                
+
 __all__ += ['EntanglementCertificateAuthority']
+
+@inject(
+    ainjector=AsyncInjector)
+async def find_dns_zone(domain:str, *, ainjector):
+    '''
+    Find whether there is a zone that encompasses *domain*.
+    '''
+    if domain[-1] == '.':
+        domain = domain[:-1]
+    while domain:
+        try:
+            zone = await ainjector.get_instance_async(InjectionKey(DnsZone, name=domain))
+            return zone
+        except KeyError:
+            _, sep, domain = domain.partition('.')
+    raise LookupError('No DNS zone registered in injector hierarchy')
+
+def safe_tag(tag:str)->str:
+    '''
+    Return a version of a tag safe for use as a filename
+    '''
+    return re.sub(r'[^a-zA-Z0-9\._-]', '_', tag)
+
+class Le2136PkiManager(PkiManager):
+
+    '''
+    An abstract base class that runs LetsEncrypt (certbot) in DNS RFC2136 mode, allowing it to update a DNS zone using dns-tsig and use that to satisfy DNS-01 challenges for a certificate.
+
+    This class leaves a few details of interfacing with certbot and retrieving results up to subclasses.
+
+    '''
+
+    certbot_production_certificates:bool = True
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.certbot_lock = asyncio.Lock()
+        self.certbot_tags_by_hostname = {}
+        
+    key_name_re = re.compile(r'key\s+"([^"]+)"')
+    algorithm_re = re.compile(r'algorithm\s+([-a-zA-Z0-9]+);')
+    secret_re = re.compile(r'secret\s+"([^"]+)"')
+    
+    def bind9_tsig_to_certbot(self, tsig_key, *, server='127.0.0.1', port=53):
+        '''
+        Takes as input a bind9  tsig key statement and returns a rfc2136 credentials INI.
+        :param server: the DNS server to send queries to.
+        '''
+        if match := self.key_name_re.search(tsig_key):
+            key_name = match.group(1)
+        else:
+            raise ValueError('Unable to find key name')
+        if match := self.algorithm_re.search(tsig_key):
+            algorithm = match.group(1)
+            # certbot requires algorithm to be upper case and silently
+            # falls back to md5 if the algorithm is unknown.
+            algorithm = algorithm.upper()
+        else:
+            raise ValueError('Unable to find algorthim')
+        if match := self.secret_re.search(tsig_key):
+            secret = match.group(1)
+        else:
+            raise ValueError('Unable to find secret')
+        return f'''
+dns_rfc2136_name = {key_name}
+dns_rfc2136_secret = {secret}
+dns_rfc2136_algorithm = {algorithm}
+dns_rfc2136_server = {server}
+dns_rfc2136_port = {port}
+'''
+
+    async def get_rfc2136_credentials(self, zone):
+        '''
+        called by :meth:`run_certbot` to generate a dns-rfc2136-credentials file.
+        '''
+        key_path = zone.key_path
+        try:
+            server = zone.zone_info.update_server
+            server = await resolve_deferred(zone.ainjector, server, args=dict(zone=zone))
+        except AttributeError:
+            server = '127.0.0.1'
+        return self.bind9_tsig_to_certbot(key_path.read_text(), server=server)
+
+    async def issue_credentials(self, hostname:str, tag:str):
+        current_tags = self.certbot_tags_by_hostname.setdefault(hostname, set())
+        if tag in current_tags:
+            raise RuntimeError(f'{tag} not unique for {hostname}')
+        current_tags.add(tag)
+        zone_obj = await self.ainjector(find_dns_zone, hostname)
+        async with self.certbot_lock:
+            cert_name = safe_tag(hostname)+':'+safe_tag(tag)
+            await  self.run_certbot(
+                zone_obj,
+                'certonly',
+                '--cert-name', cert_name,
+                '--dns-rfc2136',
+                '-d', hostname,
+                '--no-autorenew'
+            )
+        async with self.certbot_access() as path:
+            key = path/cert_name/'privkey.pem'
+            chain = path/cert_name/'fullchain.pem'
+            return key.read_text(), chain.read_text()
+
+    async def trust_store(self):
+        return await self.ainjector(
+            carthage.pki.LetsencryptTrustStore,
+            production=self.certbot_production_certificates
+            )
+
+    async def certificates(self):
+        async with self.certbot_access() as path:
+            for cert in path.glob('*:*/fullchain.pem'):
+                yield cert.read_text()
+                
+    async def certbot_access(self):
+        '''
+        Abstract method that provides access to the letsencrypt live (or other configured directory) for the certbot instance.
+        Works like :meth:`carthage.machine.Machine.filesystem_access` except is relative to the letsencrypt live directory.
+        '''
+        raise NotImplementedError
+
+    async def run_certbot(self, zone:DnsZone, *args):
+        '''
+        Run certbot with the given arguments.
+        This is responsible for calling self.get_rfc2136_credentials and saving that to a file certbot can read, and including a --dns-rfc2136-credentials option.
+
+        :param zone: The DNS zone in which the certificates live.
+        '''
+        raise NotImplementedError
+    
+__all__ += ['Le2136PkiManager']
+
+class InstallCertbot2136Customization(FilesystemCustomization):
+
+    @setup_task("Install certbot")
+    async def install_certbot(self):
+        await self.run_command(
+            'apt', '-y', 'install',
+            'python3-certbot-dns-rfc2136',
+            'certbot')
+
+class Le2136PkiManagerMachineMixin(Machine, Le2136PkiManager):
+
+    '''
+    Run letsencrypt on a :class:`carthage.machine.Machine`
+    '''
+
+    # In case we are an OCI container, be interactive so we stay
+    # running even with /bin/sh as a command.
+    oci_interactive = True
+
+    @memoproperty
+    def certbot_production_certificates(self):
+        '''Should we use production or staging certificates: true for production
+        '''
+        try:
+            return self.model.certbot_production_certificates
+        except AttributeError:
+            return True
+        
+    async def run_certbot(self, zone:DnsZone, *args):
+        if not self.model.certbot_email:
+            raise RuntimeError('certbot email not specified')
+        test_argument = []
+        if not self.certbot_production_certificates:
+            test_argument.append('--test-cert')
+        async with self.machine_running(), self.filesystem_access() as path:
+            credentials = await self.get_rfc2136_credentials(zone)
+            credentials_path = path/'dns.credentials'
+            credentials_path.touch()
+            credentials_path.chmod(0o600)
+            credentials_path.write_text(credentials)
+            await self.run_command(
+                'certbot',
+                '-n',
+                '--agree-tos',
+                '-m', self.model.certbot_email,
+                *test_argument,
+                *args,
+                '--dns-rfc2136-credentials=/dns.credentials')
+
+    @contextlib.asynccontextmanager
+    async def certbot_access(self):
+        async with self.filesystem_access() as path:
+            yield path/'etc/letsencrypt/live'
+
+class Le2136PkiManagerModel(MachineModel, template=True):
+
+    '''
+    typical usage::
+
+        class pki(Le2136PkiManagerModel):
+            certbot_email = 'email.address@domain'
+            certbot_production_certificates = False
+            #In this scope, PkiManager is provided, but generally it
+            # needs to be provided more broadly
+        add_provider(InjectionKey(PkiManager, _globally_unique=True),
+            injector_xref(InjectionKey('pki'), InjectionKey(PkiManager)),
+            propagate_up=True)
+
+    '''
+
+    certbot_email:str = ""
+    certbot_production_certificates:bool = True
+    
+    add_provider(InjectionKey(MachineMixin, name='le_pki'),
+                 dependency_quote(Le2136PkiManagerMachineMixin))
+    add_provider(InjectionKey(PkiManager), injector_access(InjectionKey(Machine)))
+
+    install_certbot = InstallCertbot2136Customization
+    
+
+__all__ += ['Le2136PkiManagerModel']
