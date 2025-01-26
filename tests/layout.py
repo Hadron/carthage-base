@@ -26,7 +26,7 @@ class test_layout(CarthageLayout, PublicDnsManagement):
                  when_needed(AwsHostedZone, name="autotest.photon.ac",
                              addl_keys=[InjectionKey(DnsZone, domain='autotest.photon.ac')]))
     add_provider(WriteAuthorizedKeysPlugin, allow_multiple=True)
-    add_provider(InjectionKey('aws_ami'), image_provider(owner=debian_ami_owner, name='debian-11-amd64-*'))
+    add_provider(InjectionKey('aws_ami'), image_provider(owner=debian_ami_owner, name='debian-12-amd64-*'))
 
     add_provider(oci_container_image, 'debian:bookworm')
     oci_interactive = True
