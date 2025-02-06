@@ -1,4 +1,4 @@
-# Copyright (C) 2018, 2019, 2020, 2021, Hadron Industries, Inc.
+# Copyright (C) 2018, 2019, 2020, 2021, 2025, Hadron Industries, Inc.
 # Carthage is free software; you can redistribute it and/or modify
 # it under the terms of the GNU Lesser General Public License version 3
 # as published by the Free Software Foundation. It is distributed
@@ -8,7 +8,7 @@
 
 
 # This file depends on hadron-operations which is not public.  Make
-# sure that __init__.py does not call in this file.  IF you are going
+# sure that __init__.py does not call in this file.  If you are going
 # to use this file, make sure your config includes hadron-operations *
 # otherwise hadron.carthage will not exist.
 
@@ -52,21 +52,28 @@ class AcesIntegration(ModelTasks):
     def handle_certificates(self):
         aces_root = Path("/usr/share/ca-certificates/aces/hadron_vault_root.crt")
         if not aces_root.exists(): raise SkipSetupTask
-        output_dir = Path(self.config_layout.output_dir)
-        os.makedirs(output_dir, exist_ok=True)
-        output_dir.joinpath("vpn_ca.pem").write_text(aces_root.read_text())
+        cache_dir = Path(self.config_layout.cache_dir)
+        os.makedirs(cache_dir, exist_ok=True)
+        cache_dir.joinpath("vpn_ca.pem").write_text(aces_root.read_text())
 
     @setup_task("make download")
     async def make_download(self):
         repo_path = Path(self.config_layout.checkout_dir)/"hadron-operations"
         packages_path = repo_path/"ansible/packages"
         stamp_path = self.stamp_path
-        os.makedirs(self.stamp_path, exist_ok=True)
-        try: stamp_path.joinpath("packages").symlink_to(repo_path/"ansible/packages")
+        state_path = self.state_path
+        # try symlink ansible/packages in the repo to somewhere that will be preserved if the checkout is cleared so packages are preserved.
+        try: (repo_path/"ansible/packages").symlink_to(state_path/"packages")
+        except FileExistsError: pass
+        # But we need to link whatever the repo is using into what
+        # will become the hadron config dir because that directory
+        # goes into pkgdir in the ansible inventory based on what the
+        # hosts plugin from h-o sets up.
+        try: stamp_path.joinpath('packages').symlink_to(repo_path/'ansible/packages')
         except FileExistsError: pass
         try: stamp_path.joinpath('output').symlink_to(repo_path/"ansible/output")
         except FileExistsError: pass
-        try:         stamp_path.joinpath("output").symlink_to(self.config_layout.output_dir)
+        try:         stamp_path.joinpath("output").symlink_to(self.config_layout.cache_dir)
         except FileExistsError: pass
         os.makedirs(repo_path.joinpath("ansible/packages"), exist_ok=True)
         try:
@@ -81,6 +88,7 @@ class AcesIntegration(ModelTasks):
             else:
                 raise
         return
+
     async def async_ready(self):
         await self.run_setup_tasks()
         base_injector.add_provider(UsefulVars)

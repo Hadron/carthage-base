@@ -22,7 +22,7 @@ def _checkhost(model, file=None):
     try:
         close=False
         if not file:
-            file = model.stamp_path.joinpath(".host").open( "r+")
+            file = model.state_path.joinpath(".host").open( "r+")
             close = True
             fcntl.lockf(file.fileno(), fcntl.LOCK_SH)
         res =  file.read()
@@ -33,7 +33,7 @@ def _checkhost(model, file=None):
         if close: file.close()
 
 def _sethost(model, host):
-    fd = os.open(model.stamp_path/".host", os.O_CREAT|os.O_RDWR|os.O_CLOEXEC, 0o664)
+    fd = os.open(model.state_path/".host", os.O_CREAT|os.O_RDWR|os.O_CLOEXEC, 0o664)
     with open(fd, "r+t") as file:
         fcntl.lockf(fd,fcntl.LOCK_EX)
         cur_host = _checkhost(model, file=file)
@@ -45,7 +45,7 @@ def _sethost(model, host):
 
 def clear_hosted(model):
     "Clear indication that a model's implementation is running somewhere.  The caller must guarantee the model is not running otherwise the model may be started in two locations."
-    try: os.unlink(model.stamp_path/'.host')
+    try: os.unlink(model.state_path/'.host')
     except FileNotFoundError: pass
 
 __all__ += ['clear_hosted']

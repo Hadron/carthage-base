@@ -274,7 +274,7 @@ class Bind9Role(MachineModel, template=True):
     #: Global bind options
     named_options = {}
     def key_path(self, key):
-        return self.stamp_path/f'tsig_keys/{key}.key'
+        return self.state_path/f'tsig_keys/{key}.key'
 
     def __init_subclass__(cls, **kwargs):
         from .dns import Bind9DnsZone
@@ -364,7 +364,7 @@ class Bind9Role(MachineModel, template=True):
         @setup_task("Gather tsig keys for model")
         async def gather_tsig_keys(self):
             key_dir = self.path/"etc/bind/tsig_keys"
-            model_key_dir = self.model.stamp_path/"tsig_keys"
+            model_key_dir = self.model.state_path/"tsig_keys"
             model_key_dir.mkdir(mode=0o700, exist_ok=True)
             for k in self.model.tsig_keys:
                 key_stem = f'{k}.key'
@@ -378,7 +378,7 @@ class Bind9Role(MachineModel, template=True):
             last = 0.0
             async with self.host.filesystem_access() as path:
                 key_path = path/"etc/bind/tsig_keys"
-                model_key_path = self.model.stamp_path/"tsig_keys"
+                model_key_path = self.model.state_path/"tsig_keys"
                 if not model_key_path.exists(): return False
                 for k in self.model.tsig_keys:
                     key_stem = f'{k}.key'
