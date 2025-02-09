@@ -172,7 +172,7 @@ class StrongswanGatewayRole(MachineModel, template=True):
     def __init_subclass__(cls, template=False, **kwargs):
         super().__init_subclass__(template=template, **kwargs)
         if not template:
-            globally_unique_key(InjectionKey(StrongswanGatewayRole, host=cls.name))(cls)
+            propagate_key(InjectionKey(StrongswanGatewayRole, host=cls.name, _globally_unique=True))(cls)
 
     #: The xfrm interface id or None for inbound traffic
     if_id_in = None
