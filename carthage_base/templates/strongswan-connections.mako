@@ -29,8 +29,8 @@ connections {
 		updown = ${instance.ipsec_updown}
 		%endif
 		%if instance.ipsec_maintain_sas:
-		start_action = ${"start" if instance.ipsec_maintain_sas == "start" else "trap"}
-		dpd_action = trap
+		start_action = ${"trap|start" if instance.ipsec_maintain_sas == "start" else "trap"}
+		dpd_action = restart
 		close_action = trap
 		%endif
             }
