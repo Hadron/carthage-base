@@ -341,7 +341,8 @@ class Le2136PkiManagerMachineMixin(Machine, Le2136PkiManager):
     @contextlib.asynccontextmanager
     async def certbot_access(self):
         async with self.filesystem_access() as path:
-            yield path/'etc/letsencrypt/live'
+            pki_dir =path.joinpath(self.model.pki_access_dir or "")
+            yield pki_dir/'etc/letsencrypt/live'
 
 class Le2136PkiManagerModel(MachineModel, template=True):
 
@@ -361,7 +362,9 @@ class Le2136PkiManagerModel(MachineModel, template=True):
 
     certbot_email:str = ""
     certbot_production_certificates:bool = True
-    
+        #: If non-none, access letsencrypt directory via this (potentially absolute) path.  If ca is a container, and pki_dir is mounted from the host, pki_access_dir may need to be set; 'etc/letsencrypt/live' is appended.
+    pki_access_dir = None
+
     add_provider(InjectionKey(MachineMixin, name='le_pki'),
                  dependency_quote(Le2136PkiManagerMachineMixin))
     add_provider(InjectionKey(PkiManager), injector_access(InjectionKey(Machine)))
