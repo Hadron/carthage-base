@@ -12,6 +12,7 @@ import re
 
 from carthage import *
 from carthage.pki import PkiManager
+from carthage.pki_utils import *
 from carthage.modeling import *
 from carthage.ansible import ansible_role_task
 import carthage.setup_tasks
@@ -73,11 +74,14 @@ class CertificateInstallationTask(carthage.setup_tasks.TaskWrapperBase):
             cust = await instance.ainjector(FilesystemCustomization, instance)
             async with cust.customization_context:
                 if not self.stem: self.stem = f'{instance.name}.pem'
-                stat = cust.path.joinpath(self.cert_fn).stat()
+                cert_path = cust.path.joinpath(self.cert_fn)
+                stat = cert_path.stat()
+                if certificate_is_expired(cert_path.read_text(), days_left=14, fraction_left=0.33):
+                    return False
                 return stat.st_mtime
         except FileNotFoundError: return False
         except Exception:
-            #Also return False, although perhaps we should log debugging info.  This can be a normal condition if a machine does not yet exist.
+            logger.exception('determining certificate installation')
             return False
         
 __all__ += ['CertificateInstallationTask']
@@ -107,13 +111,19 @@ class EntanglementCertificateAuthority(PkiManager, MachineModel, template=True):
         cust = await machine.ainjector(FilesystemCustomization, machine)
         async with cust.customization_context:
             pki_dir = cust.path.joinpath(self.pki_access_dir or self.pki_dir)
-            try: return pki_dir.joinpath('ca.pem').read_text()
+            ca_path = pki_dir.joinpath('ca.pem')
+            try:
+                ca = ca_path.read_text()
+                if certificate_is_expired(ca, days_left=14, fraction_left=0.33):
+                    ca_path.unlink()
+                    raise FileNotFoundError
+                return ca
             except FileNotFoundError:
                 await cust.run_command(
                     'entanglement-pki',
                     '--pki-dir='+str(self.pki_dir),
                     '--ca-name='+self.ca_name)
-                return pki_dir.joinpath('ca.pem').read_text()
+                return ca_path.read_text()
 
     async def issue_credentials(self, dns_name):
         machine = self.machine
@@ -136,7 +146,7 @@ class EntanglementCertificateAuthority(PkiManager, MachineModel, template=True):
             SimpleTrustStore,
             'entanglement_trust',
             dict(
-                entanglement_ca=await self.ca_pem()))
+                entanglement_ca=await self.ca_cert_pem()))
 
     async def certificates(self):
         async with self.machine.filesystem_access() as path:
