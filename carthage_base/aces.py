@@ -26,17 +26,25 @@ from pathlib import Path
 
 from .images import DebianImage
 
-@inject(config = ConfigLayout)
+@inject(injector=Injector)
 class UsefulVars(AnsibleGroupPlugin):
 
     name = "hadron_integration_vars"
 
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.config_layout = self.injector(ConfigLayout)
+        self.packages_path = Path(self.config_layout.state_dir)/'hadron_packages'
+
     async def group_info(self):
-        config = self.config
+        config = self.config_layout
         import urllib.parse
         url = urllib.parse.urlparse(config.debian.mirror)
         vars = {
-            'hadron_vault_addr': 'https://vault.hadronindustries.com:8200/'}
+            
+            'hadron_vault_addr': 'https://vault.hadronindustries.com:8200/',
+            'packagedir': str(self.packages_path),
+        }
         if url.path =="/debian":
             vars['debian_mirror'] = url.netloc
         
@@ -60,10 +68,11 @@ class AcesIntegration(ModelTasks):
     async def make_download(self):
         repo_path = Path(self.config_layout.checkout_dir)/"hadron-operations"
         packages_path = repo_path/"ansible/packages"
+        packages_path.mkdir(parents=True, exist_ok=False)
         stamp_path = self.stamp_path
-        state_path = self.state_path
+        packages_path = Path(self.config_layout.state_dir)/'hadron_packages'
         # try symlink ansible/packages in the repo to somewhere that will be preserved if the checkout is cleared so packages are preserved.
-        try: (repo_path/"ansible/packages").symlink_to(state_path/"packages")
+        try: (repo_path/"ansible/packages").symlink_to(packages_path)
         except FileExistsError: pass
         # But we need to link whatever the repo is using into what
         # will become the hadron config dir because that directory
