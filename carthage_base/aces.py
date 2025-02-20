@@ -68,7 +68,7 @@ class AcesIntegration(ModelTasks):
     async def make_download(self):
         repo_path = Path(self.config_layout.checkout_dir)/"hadron-operations"
         packages_path = repo_path/"ansible/packages"
-        packages_path.mkdir(parents=True, exist_ok=False)
+        packages_path.mkdir(parents=True, exist_ok=True)
         stamp_path = self.stamp_path
         packages_path = Path(self.config_layout.state_dir)/'hadron_packages'
         # try symlink ansible/packages in the repo to somewhere that will be preserved if the checkout is cleared so packages are preserved.
