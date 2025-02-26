@@ -1,0 +1,20 @@
+[Unit]
+ConditionFileIsExecutable=/usr/bin/gitlab-runner
+ 
+After=network.target 
+
+[Service]
+StartLimitInterval=5
+StartLimitBurst=10
+Restart=always
+RestartSec=120
+{% if runner_user != "root" %}
+ProtectSystem = full
+NoNewPrivileges = yes
+User = {{runner_user}}
+PAMName = gitlab-runner
+{% endif %}
+ExecStart=/usr/bin/gitlab-runner run --config /etc/gitlab-runner/config-{{runner.name}}.toml --service runner_{{runner.name}}
+
+[Install]
+WantedBy = multi-user.target

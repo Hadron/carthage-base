@@ -1,0 +1,13 @@
+- name: Install gitlab-runner sources
+  template: src=gitlab-runner.sources dest=/etc/apt/sources.list.d/gitlab-runner.sources
+  register: gitlab_sources
+- name: install gitlab-runner
+  apt: name=gitlab-runner state=present update_cache={{'yes' if gitlab_sources.changed else 'no'}}
+- name: Install runners
+  include_tasks: runner.yml
+  vars:
+    runner_user: '{{"root" if runner.user is not defined else runner.user}}'
+  loop: '{{runners}}'
+  loop_control:
+    loop_var: runner
+    label: '{{runner.name}}'

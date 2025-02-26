@@ -1,0 +1,34 @@
+- name: collect runner uid
+  command: id -u {{runner_user}}
+  register: runner_uid
+  when: runner_user != "root"
+- set_fact:
+    runner_podman_socket: /run/user/{{runner_uid.stdout|strip}}/podman/podman.sock
+  when: runner_user != "root"
+- set_fact:
+    runner_podman_socket: /run/podman/podman.sock
+  when: runner_user == "root"
+- name: Installing runner config
+  template:
+    src: config-runner.toml
+    dest: /etc/gitlab-runner/config-{{runner.name}}.toml
+    force: no # at least until we have a way to handle tokens
+- name: giving permission for runner config
+  ansible.posix.acl:
+    path: /etc/gitlab-runner/config-{{runner.name}}.toml
+    entity: '{{runner_user}}'
+    etype: user
+    permissions: r
+- name: installing runner service
+  template:
+    src: runner.service
+    dest: /etc/systemd/system/runner-{{runner.name}}.service
+  register: runner_service
+- name: enable runner
+  systemd:
+    name: runner-{{runner.name}}.service
+    enabled: yes
+    daemon_reload: yes
+    state: started
+  when: runner_service.changed
+  

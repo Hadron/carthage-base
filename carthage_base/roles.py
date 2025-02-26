@@ -1,4 +1,4 @@
-# Copyright (C) 2018, 2019, 2020, 2021, 2022, 2023, Hadron Industries, Inc.
+# Copyright (C) 2018, 2019, 2020, 2021, 2022, 2023, 2025, Hadron Industries, Inc.
 # Carthage is free software; you can redistribute it and/or modify
 # it under the terms of the GNU Lesser General Public License version 3
 # as published by the Free Software Foundation. It is distributed
@@ -466,3 +466,43 @@ class AnsibleMachineIpAddressRole(MachineModel, template=True):
     machine_mixins = (AnsibleUseMachineIpAddress,)
 
 __all__ += ['AnsibleMachineIpAddressRole']
+
+@inject(model=AbstractMachineModel,
+        ainjector=AsyncInjector)
+async def gitlab_runner_vars(*, model, ainjector):
+    '''
+    See documentation of :class:`GitlabRunnerRole`
+    '''
+    assert hasattr(model, 'gitlab_runners')
+    return dict(
+        runners= await resolve_deferred(ainjector, item=model.gitlab_runners, args={}))
+
+class GitlabRunnerRole(MachineModel, template=True):
+
+    '''
+    Use an ansible role task to set up runners.
+
+    Class variables:
+
+    :param gitlab_runners: Describe the gitlab runners.  A list of dicts with the following keys:
+
+      * name
+      * url
+      * token
+      * executor
+      * image (for docker)
+      * user
+      * volumes (for docker; literally substituted as a string into the toml)
+
+      And the following optional parameters:
+      * boulds_dir
+      * cache_dir
+    '''
+
+    class runner_customization(FilesystemCustomization):
+        description = "Set up gitlab runner"
+
+        runner_role = ansible_role_task('gitlab-runner', vars=gitlab_runner_vars)
+        
+        
+__all__ += ['GitlabRunnerRole']
