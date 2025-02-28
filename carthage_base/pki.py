@@ -24,61 +24,93 @@ __all__ = []
 @inject(pki=InjectionKey(PkiManager, _ready=True))
 class CertificateInstallationTask(carthage.setup_tasks.TaskWrapperBase):
 
-    key_dir: Path
-    ca_path: Path
-    cert_dir: Path
-    stem: str
+    '''
+    Usage::
 
-    def __init__(self, *,
-                 ca_path, cert_dir, key_dir,
-                 stem=None,
-                 **kwargs):
-        super().__init__(
-            description=f'Install certificate to {ca_path}',
-        **kwargs)
-        self.ca_path = relative_path(ca_path)
-        self.cert_dir = relative_path(cert_dir)
-        self.key_dir = relative_path(key_dir)
-        self.stem = stem
+        class customize(FilesystemCustomization):
+            install_certificates = CertificateInstallationTask(cert=filename, key=filename, ca=filename)
 
-    @property
-    def cert_fn(self):
-        return self.cert_dir/f'{self.stem}'
+    :param cert: The path relative to the host where the certificate should be installed.
 
-    @property
-    def key_fn(self):
-        return self.key_dir/self.stem
+    :param key: The path relative to the host where the key should be installed. If not specified, the key is prepended to the certificate.
+
+    :param ca: The path relative to the host where the CA bundle for the :class:`~carthage.pki.PkiManager` should be installed.
+
+    All arguments are run through :func:`~carthage.dependency_injection.resolve_deferred`.  Strings, InjectionKeys, and functions are accepted.
+
+    '''
+
+    cert:str
+    key: str|None
+    ca: str|None
     
+    def __init__(self, *,
+                 cert, key=None, ca=None,
+                 **kwargs):
+        if isinstance(cert, str):
+            description = f'Install certificate to {cert}'
+        else:
+            description = 'Install certificate'
+        super().__init__(
+            description=description,
+        **kwargs)
+        self.cert = cert
+        self.key = key
+        self.ca = ca
+        
+    @staticmethod
+    def _path(instance):
+        '''
+        Returns either path or state_path depending on which is set.
+        '''
+        res = getattr(instance, 'path', None) or instance.state_path
+        return Path(res)
+
+    async def _resolve_args(self, instance):
+        '''
+        cert, key, ca = await self._resolve_args(instance)
+        '''
+        ainjector = instance.ainjector
+        results = await resolve_deferred(
+            ainjector,
+    item=[self.cert, self.key, self.ca],
+    args={})
+        results = tuple((relative_path(x) if x is not None else None) for x in results)
+        return results
         
     async def func(self, instance, pki):
         dns_name = instance.name
         carthage.utils.validate_shell_safe(dns_name)
-        cust = await instance.ainjector(FilesystemCustomization, instance)
-        async with cust.customization_context:
-            key, cert = await pki.issue_credentials(dns_name)
-            trust_store = await  pki.trust_store()
-            ca_file = await trust_store.ca_file()
-            ca_pem = ca_file.read_text()
-            if not self.stem: self.stem = f'{dns_name}.pem'
-            cert_dir = cust.path/self.cert_dir
-            key_dir = cust.path/self.key_dir
+        path = self._path(instance)
+        cert, key, ca = await self._resolve_args(instance)
+        key_pem, cert_pem = await pki.issue_credentials(dns_name)
+        trust_store = await  pki.trust_store()
+        ca_file = await trust_store.ca_file()
+        ca_pem = ca_file.read_text()
+        if key:
+            key_dir = (path/key).parent
             key_dir.mkdir(mode=0o700, exist_ok=True, parents=True)
-            cert_dir.mkdir(mode=0o755, exist_ok=True, parents=True)
-            cust.path.joinpath(self.ca_path).parent.mkdir(exist_ok=True)
-            cust.path.joinpath(self.ca_path).write_text(ca_pem)
-            cust.path.joinpath(self.key_fn).write_text(key)
-            cust.path.joinpath(self.cert_fn).write_text(cert)
-
+        cert_dir = (path/cert).parent
+        cert_dir.mkdir(mode=0o755, exist_ok=True, parents=True)
+        if ca:
+            ca_dir = (path/ca).parent
+            ca_dir.mkdir(exist_ok=True, parents=True)
+            (path/ca).write_text(ca_pem)
+        if not key:
+            (path/cert).write_text(key_pem+cert_pem)
+        else:
+            (path/key).write_text(key_pem)
+            (path/cert).write_text(cert_pem)
+            
     async def check_completed_func(self, instance):
         try:
-            cust = await instance.ainjector(FilesystemCustomization, instance)
-            async with cust.customization_context:
-                if not self.stem: self.stem = f'{instance.name}.pem'
-                cert_path = cust.path.joinpath(self.cert_fn)
-                stat = cert_path.stat()
-                if certificate_is_expired(cert_path.read_text(), days_left=14, fraction_left=0.33):
-                    return False
-                return stat.st_mtime
+            path = self._path(instance)
+            cert, *rest = await self._resolve_args(instance)
+            cert_path = (path/cert)
+            stat = cert_path.stat()
+            if certificate_is_expired(cert_path.read_text(), days_left=14, fraction_left=0.33):
+                return False
+            return stat.st_mtime
         except FileNotFoundError: return False
         except Exception:
             logger.exception('determining certificate installation')

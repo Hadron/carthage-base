@@ -187,10 +187,9 @@ class StrongswanGatewayRole(MachineModel, template=True):
 
         install_mako = install_mako_task('model')
         install_cert = CertificateInstallationTask(
-            ca_path='/etc/swanctl/x509ca/carthage-ca.pem',
-            cert_dir='/etc/swanctl/x509',
-            key_dir='/etc/swanctl/rsa',
-            stem='strongswan.pem',
+            ca='/etc/swanctl/x509ca/carthage-ca.pem',
+            cert='/etc/swanctl/x509/strongswan.pem',
+            key='/etc/swanctl/rsa/strongswan.pem',
             )
 
 
