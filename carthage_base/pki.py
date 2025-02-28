@@ -83,7 +83,7 @@ class CertificateInstallationTask(carthage.setup_tasks.TaskWrapperBase):
         carthage.utils.validate_shell_safe(dns_name)
         path = self._path(instance)
         cert, key, ca = await self._resolve_args(instance)
-        key_pem, cert_pem = await pki.issue_credentials(dns_name)
+        key_pem, cert_pem = await pki.issue_credentials(dns_name, f'Credentials for {cert}')
         trust_store = await  pki.trust_store()
         ca_file = await trust_store.ca_file()
         ca_pem = ca_file.read_text()
@@ -157,7 +157,7 @@ class EntanglementCertificateAuthority(PkiManager, MachineModel, template=True):
                     '--ca-name='+self.ca_name)
                 return ca_path.read_text()
 
-    async def issue_credentials(self, dns_name):
+    async def issue_credentials(self, dns_name, tag):
         machine = self.machine
         await machine.async_become_ready()
         cust = await machine.ainjector(FilesystemCustomization, machine)
