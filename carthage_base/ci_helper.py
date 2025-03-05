@@ -17,7 +17,7 @@ from carthage.network import V4Config
 from carthage.modeling import *
 from carthage.console import CarthageRunnerCommand
 import carthage.podman as carthage_podman
-from .proxy import ProxyConfig
+from .proxy import ProxyConfig, ProxyProtocol, ProxyServiceRole
 
 @provides(InjectionKey('test_network', _globally_unique=True))
 class test_network(NetworkModel):
@@ -33,9 +33,19 @@ class DumpAddressesCommand(CarthageRunnerCommand):
     name = 'dump-addresses'
 
     async def run(self, args):
+        '''
+        Print a /etc/hosts file for the layout.  ProxyServiceRoles are
+        not included; the assumption is they will be accessed through
+        the proxy via their IP address.
+
+        '''
         layout = await self.ainjector.get_instance_async(CarthageLayout)
         networks = set()
         for model in await layout.all_models():
+            if isinstance(model, ProxyProtocol):
+                proxy = model
+            if isinstance(model, ProxyServiceRole):
+                continue
             try:
                 network_links = model.network_links
             except AttributeError: continue
@@ -45,7 +55,13 @@ class DumpAddressesCommand(CarthageRunnerCommand):
                     networks.add(link.net)
                 if link.merged_v4_config and link.merged_v4_config.address:
                     print(f'{link.merged_v4_config.address}\t{link.dns_name or model.name}')
-
+        if proxy:
+            config = proxy.injector.get_instance(ProxyConfig)
+            first_link = next(iter(proxy.network_links.values()))
+            proxy_address = str(first_link.merged_v4_config.address)
+            service_names = set(s.public_name for s in config.services.values())
+            print(f'{proxy_address}\t{" ".join(service_names)}')
+            
     def setup_subparser(self, subparser):
         pass
     
@@ -58,6 +74,5 @@ class ContainerizedCiLayout(CarthageLayout):
     test_network = test_network
     add_provider(InjectionKey(NetworkConfig), test_network_config)
     add_provider(DumpAddressesCommand)
-    add_provider(ProxyConfig)
     
     
