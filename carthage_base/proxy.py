@@ -523,9 +523,9 @@ class ProxySystemDependency(SystemDependency):
     name = 'proxy_dependency'
 
     async def __call__(self, ainjector):
-        await ainjector.get_instance_async(InjectionKey(ProxyProtocol, _ready=True))
-        if not await config.server.machine.is_machine_running():
-            await config.server.machine.start_machine()
+        server = await ainjector.get_instance_async(InjectionKey(ProxyProtocol, _ready=True))
+        if not await server.machine.is_machine_running():
+            await server.machine.start_machine()
 
 @inject(config=ProxyConfig)
 def find_proxy_server(config):
