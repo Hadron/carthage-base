@@ -55,6 +55,7 @@ class DebianImageCustomization(ContainerCustomization):
 class DebianMirrorTracker(FilesystemCustomization):
 
     description="Track updates to configured mirror"
+    runas_user = 'root'
 
     @setup_task("Update mirror")
     async def update_mirror_tracker(self):

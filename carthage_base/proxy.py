@@ -1,4 +1,4 @@
-# Copyright (C) 2023, 2024, Hadron Industries, Inc.
+# Copyright (C) 2023, 2024, 2025, Hadron Industries, Inc.
 # Carthage is free software; you can redistribute it and/or modify
 # it under the terms of the GNU Lesser General Public License version 3
 # as published by the Free Software Foundation. It is distributed
@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import typing
 from urllib.parse import urlparse
+import urllib
 from ipaddress import IPv4Address
 import carthage.dns
 import carthage.pki as pki
@@ -20,6 +21,7 @@ from carthage.utils import memoproperty, possibly_async
 from carthage.modeling.utils import setattr_default # xxx this should move somewhere more public
 from carthage.oci import *
 from carthage.podman import *
+from carthage.network import shared_network_links
 
 resources_dir = Path(__file__).parent.joinpath('resources')
 
@@ -35,30 +37,99 @@ class CertInfo:
 @dataclasses.dataclass()
 class ProxyService(InjectableModel):
 
-    '''
-    Represents a request from a :class:`MachineModel` for some service to be reverse proxied into the machine.
+    '''Represents a service on a :class:`ProxyServiceRole` that can beg reverse proxied.
+    Typical usage::
 
-    Typical usage is that there is a proxy micro service on a container host that claims port 443 (and possibly 80).  It collects :class:`ProxyService` from its injector up to the point where :class:`ProxyConfig` is defined and reverse proxies for each service.
+        class service(ProxyServiceRole):
+            add_provider(ProxyService(
+                downstream='https://{name}/',
+                service='some_service')
 
+    That would add a service whose public facing name is the same as
+    the name of the model. Carthage will attempt to determine
+    plausible upstream URLs and public_names. 
 
+    The following tokens are replaced within upstream and downstream URLS:
+
+    ``{name}``
+        The name of the model.
+
+    ``{{upstream_ip}}``
+        An ip address on which the proxy can contact the service. 
     '''
     
-    upstream:str #: URL that the proxy should contact to reach the service
-    downstream: str #: URL facing toward the public side of the proxy
+    upstream_url:urllib.parse.ParseResult #: URL that the proxy should contact to reach the service
+    downstream_url: urllib.parse.ParseResult #: URL facing toward the public side of the proxy
     service: str #:A name to identify the service; the service and protocol need to be unique in the context of a given :class:`ProxyConfig`
-    #: List of addresses that DNS should point to for this proxy service.  May be a (potentially asynchronous) function, in which case this will be resolved when first needed.  If None, uses the proxy server's public_ips
-    public_ips: list = None
 
-    #: Private IPs by which the downstream is known. If empty, uses the ProxyServer's private_ips; may be a potentially asynchronous function
-    private_ips: list = None
     public_name: str = None #: The public name under which the service is registered in DNS; if downstream is set, must be the same as the netloc of the downstream URL.
 
-    def __post_init__(self):
-        object.__setattr__(self, 'upstream_url', urlparse(self.upstream))
-        object.__setattr__(self, 'downstream_url', urlparse(self.downstream))
-        if '.' not in self.downstream_server:
-            raise ValueError(f'downstream server for {self} must be a valid FQDN')
+    def __init__(
+            self, *,
+            downstream:str,
+            upstream:str = None,
+            public_name:str|bool = None,
+            upstream_port:int = None,
+            service=None
+            ):
+        if not upstream and not upstream_port:
+            raise Typeerror('Either upstream or upstream_port is required')
+        if not upstream:
+            proto = 'https' if upstream_port in {443, 8443} else 'http'
+            if upstream_port in (443, 80):
+                portstr = ''
+            else:
+                portstr = f':{upstream_port}'
+            upstream = f'{proto}://{{upstream_ip}}{portstr}/'
+        self.upstream = upstream
+        self.downstream = downstream
+        if not service:
+            service = self.downstream_url.netloc+'-'+self.upstream_url.scheme
+        self.service = service
+        if public_name:
+            self.public_name = public_name
+        elif public_name is False:
+            self.public_name = None
 
+    @property
+    def downstream(self):
+        return self.downstream_url.geturl()
+
+    @downstream.setter
+    def downstream(self, url):
+        self.downstream_url = urlparse(url)
+        return url
+
+    @property
+    def upstream(self):
+        return self.upstream_url.geturl()
+
+    @upstream.setter
+    def upstream(self, url):
+        self.upstream_url = urlparse(url)
+        return url
+    async def resolve_for_model(self, model, config:'proxyConfig'):
+        def sub(s:str):
+            s = s.replace('{name}', model.name)
+            s = s.replace('{upstream_ip}', upstream_ip)
+            return s
+        upstream_ip = str(await resolve_deferred(
+            model.ainjector,
+            item=model.proxy_address,
+            args={'server':config.server,
+                  'config':config,
+                  }))
+        self.upstream = sub(self.upstream)
+        self.downstream = sub(self.downstream)
+
+    def default_instance_injection_key(self):
+        return InjectionKey(ProxyService, service=self.service)
+    
+
+    @memoproperty
+    def public_name(self):
+        return self.downstream_url.netloc
+    
     @property
     def upstream_server(self):
         '''The host associated with the upstream URL'''
@@ -377,10 +448,8 @@ class ProxyProtocol(MachineModel, template=True):
         found_addresses = False
         for s in config.services.values():
             if not s.public_name : continue
-            public_ips = s.public_ips
-            if public_ips is None: public_ips = self.proxy_public_ips
-            private_ips = s.private_ips
-            if private_ips is None: private_ips = self.proxy_private_ips
+            public_ips = self.proxy_public_ips
+            private_ips = self.proxy_private_ips
             if callable(public_ips):
                 public_ips = await self.ainjector(public_ips)
             public_records = None
@@ -406,6 +475,8 @@ class ProxyProtocol(MachineModel, template=True):
 class ProxyServerRole(ProxyProtocol, ProxyImageRole, template=True):
 
     self_provider(InjectionKey(ProxyProtocol))
+    add_provider(ProxyConfig)
+    
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.injector.replace_provider(InjectionKey('by_server_path'), self.by_server_path)
@@ -439,15 +510,24 @@ class ProxyServerRole(ProxyProtocol, ProxyImageRole, template=True):
             
 __all__ += ['ProxyServerRole']
 
+@inject(base_image=None)
+class ProxyContainerImage(ProxyImageRole, PodmanImageModel):
+    oci_image_tag = 'localhost/proxy:latest'
+    base_image = 'debian:latest'
+    oci_image_command = ['apache2ctl', '-D', 'FOREGROUND']
+
+__all__ += ['ProxyContainerImage']
+
 class ProxySystemDependency(SystemDependency):
 
     name = 'proxy_dependency'
 
     async def __call__(self, ainjector):
-        config = await ainjector.get_instance_async(ProxyConfig)
-        await config.server.machine.async_become_ready()
-        if not await config.server.machine.is_machine_running():
-            await config.server.machine.start_machine()
+        server = await ainjector.get_instance_async(InjectionKey(ProxyProtocol, _ready=True))
+        await server.machine.async_become_ready()
+        if not await server.machine.is_machine_running():
+            await server.machine.start_machine()
+
 @inject(config=ProxyConfig)
 def find_proxy_server(config):
     '''
@@ -458,89 +538,35 @@ def find_proxy_server(config):
 class ProxyServiceRole(MachineModel, AsyncInjectable, template=True):
 
     add_provider(ProxySystemDependency())
-    add_provider(InjectionKey(ProxyProtocol), find_proxy_server)
     add_provider(pki.contact_trust_store_key, injector_xref(
         InjectionKey(ProxyProtocol),
         pki.contact_trust_store_key))
     
-    
-
-    async def register_container_proxy_services(self, config:ProxyConfig):
+    async def proxy_address(self, server:ProxyProtocol):
         '''
-
-        Based on :class:`ports a container exposes <OciExposedPort>`, infer :class:`ProxyServices` to configure for a container providing a service.
-
-        If port 80, 8080, 443, or 8443 are exposed, then register a service.  The following options will be used for the upstream proxy address in decreasing priority order:
-
-        * if a *host_ip* is specified in the :class:`OciExposedPort`, then that IP and the *host_port* will be used.
-
-        * If *proxy_address* is set on the model and *proxy_address_use_host_port*  is not falsy, then *proxy_address* will be used with  the *host_port*.  This describes the situation where *proxy_address* corresponds to an interface on the container host.
-
-        * If *proxy_address* is set on the model and *proxy_address_use_host_port* is not set or is falsy, then *proxy_address* will be used with the *container_port*.  This describes the situation where *proxy_address* is an IP address on the container.
-
-        * if *ip_address* is set on the model, it will be used with the *container_port*.
-
-        * if the proxy server has a network in common with the container, use the IPv4 address of the container on that network.
-
-        * If the container is a : class:`carthage.podman.PodmanContainer`, then ``host.containers.internal`` will be used with the *host_port*.
-
+        Returns the address at which the proxy should contact this proxy service.
         '''
-
-        def shared_network_links(m1, m2):
-            for l1 in m1.values():
-                for l2 in m2.values():
-                    if l1.merged_v4_config.network == l2.merged_v4_config.network:
-                        yield l1, l2
-
-        config = await self.ainjector.get_instance_async(ProxyConfig)
-        ports = self.injector.filter_instantiate(OciExposedPort, ['container_port'])
-
-        fallback_addr_uses_host_port = False
-        fallback_addr = getattr(self, 'proxy_address', None)
-        if fallback_addr:
-            fallback_addr_uses_host_port = getattr(self, 'proxy_address_uses_host_port', False)
-        else:
-            fallback_addr = getattr(self, 'ip_address', None)
-            if fallback_addr is None:
-                for l1, l2 in shared_network_links(self.network_links, config.server.network_links):
-                    fallback_addr = l1.merged_v4_config.address
-            if fallback_addr is None \
-               and issubclass(self.machine_type, PodmanContainer):
-                fallback_addr = 'host.containers.internal'
-                fallback_addr_uses_host_port = True
-
-        for key, exposed_port in ports:
-            if exposed_port.container_port not in (80, 8080, 443, 8443): continue
-            port = exposed_port.container_port
-            host_port = exposed_port.host_port
-            if port == 80 or port == 8080: proto ='http'
-            elif port == 443 or port == 8443: proto = 'https'
-            else: raise ValueError('Unable to figure out protocol')
-            upstream_addr = exposed_port.host_ip
-            if upstream_addr == '0.0.0.0' or upstream_addr == '127.0.0.1':
-                upstream_addr = fallback_addr
-                if fallback_addr_uses_host_port: port = host_port
-            else:
-                # We are using the host_ip from the OciExposedPort
-                port = host_port
-
-            if upstream_addr is None:
-                raise ValueError('Cannot figure out upstream address')
-            config.add_proxy_service(ProxyService(
-                service=(self.name if proto == 'http' else self.name+'-'+proto),
-                upstream=f'{proto}://{upstream_addr}:{port}/',
-                downstream=f'https://{self.name}/',
-                public_name=self.name,
-                ))
-
+        for links in shared_network_links(self.network_links, server.network_links):
+            if address := links[0].merged_v4_config.address:
+                return address
+        try:
+            return self.ip_address
+        except NotImplementedError:
+            raise RuntimeError('Could not find address for proxy to contact on') from None
+        
     async def register_proxy_map(self, config:ProxyConfig):
-        # Long term this should be expanded to allow the model to override proxy services, or specify them if the model will not be implemented by a container.
-        # For now all we support is the container logic
-        await self.register_container_proxy_services(config)
-
+        filter_result = await self.ainjector.filter_instantiate_async(
+            ProxyService, ['service'],
+            stop_at = self.ainjector)
+        services =[x[1] for x in filter_result]
+        for s in services:
+            await s.resolve_for_model(self, config)
+            config.add_proxy_service(s)
+        
     async def resolve_model(self, force=False):
         await super().resolve_model(force=force)
-        self.proxy_config = await self.ainjector.get_instance_async(ProxyConfig)
+        proxy_server = await self.ainjector.get_instance_async(InjectionKey(ProxyProtocol, _ready=False))
+        self.proxy_config = await proxy_server.ainjector.get_instance_async(ProxyConfig)
         self.proxy_config.add_proxied_model(self)
     
             
