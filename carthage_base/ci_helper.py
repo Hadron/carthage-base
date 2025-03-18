@@ -41,10 +41,12 @@ class DumpAddressesCommand(CarthageRunnerCommand):
         '''
         layout = await self.ainjector.get_instance_async(CarthageLayout)
         networks = set()
+        proxy = None
         for model in await layout.all_models():
             if isinstance(model, ProxyProtocol):
                 proxy = model
-            if isinstance(model, ProxyServiceRole):
+        for model in await layout.all_models():
+            if proxy and isinstance(model, ProxyServiceRole):
                 continue
             try:
                 network_links = model.network_links
