@@ -73,7 +73,7 @@ class ProxyService(InjectableModel):
             service=None
             ):
         if not upstream and not upstream_port:
-            raise Typeerror('Either upstream or upstream_port is required')
+            raise TypeError('Either upstream or upstream_port is required')
         if not upstream:
             proto = 'https' if upstream_port in {443, 8443} else 'http'
             if upstream_port in (443, 80):
