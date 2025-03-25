@@ -119,12 +119,13 @@ class CertificateInstallationTask(carthage.setup_tasks.TaskWrapperBase):
 __all__ += ['CertificateInstallationTask']
 
 
-class EntanglementCertificateAuthority(PkiManager, MachineModel, template=True):
+class ContainedEntanglementPkiManager(PkiManager):
+    '''
+    Similar to :class:`carthage.pki.EntanglementPkimanager` except runs in a Machine such as a container rather than locally out of the Carthage state directory.
+    '''
 
-    class ca_customization(FilesystemCustomization):
+    machine: carthage.machine.Machine
 
-        description = "Set up entanglement-pki"
-        entanglement_pki_role = ansible_role_task('install-entanglement-pki')
 
 
     #: Where in the machine filesystem are certs and keys stored?
@@ -185,7 +186,13 @@ class EntanglementCertificateAuthority(PkiManager, MachineModel, template=True):
             pki_path = path.joinpath(self.pki_access_dir or self.pki_dir)
             for pem in pki_dir.glob('*.pem'):
                 yield pem.read_text()
-                
+
+class EntanglementCertificateAuthority(ContainedEntanglementPkiManager, MachineModel, template=True):
+    class ca_customization(FilesystemCustomization):
+
+        description = "Set up entanglement-pki"
+        entanglement_pki_role = ansible_role_task('install-entanglement-pki')
+
 
 __all__ += ['EntanglementCertificateAuthority']
 
