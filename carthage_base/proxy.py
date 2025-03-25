@@ -108,17 +108,21 @@ class ProxyService(InjectableModel):
     def upstream(self, url):
         self.upstream_url = urlparse(url)
         return url
+
     async def resolve_for_model(self, model, config:'proxyConfig'):
         def sub(s:str):
             s = s.replace('{name}', model.name)
             s = s.replace('{upstream_ip}', upstream_ip)
             return s
-        upstream_ip = str(await resolve_deferred(
-            model.ainjector,
-            item=model.proxy_address,
-            args={'server':config.server,
-                  'config':config,
-                  }))
+        if hasattr(model, 'proxy_address'):
+            upstream_ip = str(await resolve_deferred(
+                model.ainjector,
+                item=model.proxy_address,
+                args={'server':config.server,
+                      'config':config,
+                      }))
+        else:
+            upstream_ip = ''
         self.upstream = sub(self.upstream)
         self.downstream = sub(self.downstream)
 
@@ -579,3 +583,18 @@ def le_staging_cert_info():
 LetsEncryptStagingCustomization = carthage.pki.install_root_cert_customization(le_staging_cert_info)
 
 __all__ += ['LetsEncryptStagingCustomization']
+
+async def public_names_for(model):
+    '''
+    Return all the public names for a model based on ProxyServices it provides
+    '''
+    config = model.injector(ProxyConfig)
+    filter_result = await model.ainjector.filter_instantiate_async(
+        ProxyService, ['service'],
+        stop_at = model.ainjector)
+    services =[x[1] for x in filter_result]
+    for s in services:
+            await s.resolve_for_model(model, config)
+    return list(set(s.public_name for s in services if s.public_name))
+
+__all__ += ['public_names_for']
