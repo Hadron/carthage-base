@@ -168,7 +168,7 @@ class ContainedEntanglementPkiManager(PkiManager):
             await cust.run_command(
                 'entanglement-pki',
                 '--force',
-                '--pki-dir='+str(self.pki_dir),
+                '--pki-dir=/'+str(self.pki_dir),
                 '--ca-name='+self.ca_name,
                 dns_name)
             return pki_dir.joinpath(dns_name+'.key').read_text(), \
