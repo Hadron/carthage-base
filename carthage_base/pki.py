@@ -140,7 +140,8 @@ class ContainedEntanglementPkiManager(PkiManager):
         # It's important that self.pki_access_dir not be relative pathed.
     async def ca_cert_pem(self):
         machine = self.machine
-        await machine.async_become_ready()
+        if isinstance(self, MachineModel):
+            await machine.async_become_ready()
         cust = await machine.ainjector(FilesystemCustomization, machine)
         async with cust.customization_context:
             pki_dir = cust.path.joinpath(self.pki_access_dir or self.pki_dir)
@@ -160,7 +161,8 @@ class ContainedEntanglementPkiManager(PkiManager):
 
     async def issue_credentials(self, dns_name, tag):
         machine = self.machine
-        await machine.async_become_ready()
+        if isinstance(self, MachineModel):
+            await machine.async_become_ready()
         cust = await machine.ainjector(FilesystemCustomization, machine)
         async with cust.customization_context:
             pki_dir = cust.path.joinpath(self.pki_access_dir or self.pki_dir)
