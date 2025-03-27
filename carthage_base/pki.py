@@ -43,9 +43,12 @@ class CertificateInstallationTask(carthage.setup_tasks.TaskWrapperBase):
     cert:str
     key: str|None
     ca: str|None
-    
+
+    dependencies_always = True #In volumes, mount even for check_completed
+
     def __init__(self, *,
                  cert, key=None, ca=None,
+                 dns_name=None,
                  **kwargs):
         if isinstance(cert, str):
             description = f'Install certificate to {cert}'
@@ -54,6 +57,7 @@ class CertificateInstallationTask(carthage.setup_tasks.TaskWrapperBase):
         super().__init__(
             description=description,
         **kwargs)
+        self.dns_name = dns_name
         self.cert = cert
         self.key = key
         self.ca = ca
@@ -68,21 +72,21 @@ class CertificateInstallationTask(carthage.setup_tasks.TaskWrapperBase):
 
     async def _resolve_args(self, instance):
         '''
-        cert, key, ca = await self._resolve_args(instance)
+        dns_name, cert, key, ca = await self._resolve_args(instance)
         '''
         ainjector = instance.ainjector
         results = await resolve_deferred(
             ainjector,
-    item=[self.cert, self.key, self.ca],
+    item=[self.dns_name, self.cert, self.key, self.ca],
     args={})
         results = tuple((relative_path(x) if x is not None else None) for x in results)
         return results
         
     async def func(self, instance, pki):
-        dns_name = instance.name
-        carthage.utils.validate_shell_safe(dns_name)
         path = self._path(instance)
-        cert, key, ca = await self._resolve_args(instance)
+        dns_name, cert, key, ca = await self._resolve_args(instance)
+        dns_name = dns_name or instance.name
+        carthage.utils.validate_shell_safe(dns_name)
         key_pem, cert_pem = await pki.issue_credentials(dns_name, f'Credentials for {cert}')
         trust_store = await  pki.trust_store()
         ca_file = await trust_store.ca_file()
@@ -105,7 +109,7 @@ class CertificateInstallationTask(carthage.setup_tasks.TaskWrapperBase):
     async def check_completed_func(self, instance):
         try:
             path = self._path(instance)
-            cert, *rest = await self._resolve_args(instance)
+            dns_name, cert, *rest = await self._resolve_args(instance)
             cert_path = (path/cert)
             stat = cert_path.stat()
             if certificate_is_expired(cert_path.read_text(), days_left=14, fraction_left=0.33):
@@ -115,7 +119,13 @@ class CertificateInstallationTask(carthage.setup_tasks.TaskWrapperBase):
         except Exception:
             logger.exception('determining certificate installation')
             return False
-        
+
+    @memoproperty
+    def stamp(self):
+        if isinstance(self.cert, str):
+            return f'cert_{self.cert.replace("/", "-")}'
+        raise NotImplementedError
+    
 __all__ += ['CertificateInstallationTask']
 
 
