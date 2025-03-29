@@ -79,7 +79,7 @@ class CertificateInstallationTask(carthage.setup_tasks.TaskWrapperBase):
             ainjector,
     item=[self.dns_name, self.cert, self.key, self.ca],
     args={})
-        results = tuple((relative_path(x) if x is not None else None) for x in results)
+        results = (results[0],)+tuple((relative_path(x) if x is not None else None) for x in results[1:])
         return results
         
     async def func(self, instance, pki):
