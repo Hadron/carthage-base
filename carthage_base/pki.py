@@ -44,7 +44,6 @@ class CertificateInstallationTask(carthage.setup_tasks.TaskWrapperBase):
     key: str|None
     ca: str|None
 
-    dependencies_always = True #In volumes, mount even for check_completed
 
     def __init__(self, *,
                  cert, key=None, ca=None,
@@ -57,6 +56,7 @@ class CertificateInstallationTask(carthage.setup_tasks.TaskWrapperBase):
         super().__init__(
             description=description,
         **kwargs)
+        self.dependencies_always = True #In volumes, mount even for check_completed
         self.dns_name = dns_name
         self.cert = cert
         self.key = key
