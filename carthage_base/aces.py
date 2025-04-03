@@ -54,7 +54,8 @@ class UsefulVars(AnsibleGroupPlugin):
         return []
 
 class AcesIntegration(ModelTasks):
-
+    add_provider(InjectionKey(UsefulVars.default_class_injection_key(), _globally_unique=True), UsefulVars, propagate=True)
+                 
 
     @setup_task("Handle Certificates")
     def handle_certificates(self):
@@ -100,7 +101,6 @@ class AcesIntegration(ModelTasks):
 
     async def async_ready(self):
         await self.run_setup_tasks()
-        base_injector.add_provider(UsefulVars)
         parent_injector = self.injector.parent_injector
         # at this point we should be able to import hadron stuff
         import hadron.carthage
