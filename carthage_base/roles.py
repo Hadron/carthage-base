@@ -35,10 +35,9 @@ class DhcpRole(MachineModel, template = True):
 
         @setup_task("install software")
         async def install_software(self):
-            await self.ssh("apt -y install dnsmasq",
-                           _bg = True,
-                           _bg_exc = False)
-            await self.ssh("systemctl disable --now systemd-resolved", _bg = True, _bg_exc = False)
+            await self.run_command('apt', 'update')
+            await self.run_command("apt", "-y", "install", "dnsmasq")
+            await self.run_command("systemctl", "disable", "--now", "systemd-resolved")
             async with self.filesystem_access() as path:
                 try: Path(path).joinpath("etc/resolv.conf").unlink()
                 except FileNotFoundError: pass
@@ -52,10 +51,7 @@ class DhcpRole(MachineModel, template = True):
         @setup_task("restart dnsmasq")
         async def restart_dnsmasq(self):
             if not self.running: return
-            await self.ssh("systemctl restart dnsmasq",
-                           _bg = True,
-                           _bg_exc = False)
-
+            await self.run_command('systemctl', 'restart', 'dnsmasq')
 __all__ += ['DhcpRole']
 
 class CarthageServerRole(ImageRole):
