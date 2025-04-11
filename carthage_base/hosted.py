@@ -10,6 +10,7 @@ import fcntl
 import os
 import socket
 import types
+from pathlib import Path
 from carthage import *
 import carthage.container
 import carthage.vm
@@ -17,6 +18,27 @@ import carthage.local
 from carthage.machine import BareMetalMachine
 
 __all__ = []
+
+def local_model_name():
+    '''
+Returns the name of the local machine/MachineModel.  If ``/etc/carthage/model_name`` exists, that is used. Otherwise, :func:`gethostname()` is called.
+    '''
+    try:
+        return Path('/etc/carthage/model_name').read_text().rstrip()
+    except FileNotFoundError:
+        return socket.gethostname()
+
+__all__ += ['local_model_name']
+
+class SetModelName(FilesystemCustomization):
+
+    @setup_task('Write out model name')
+    def write_model_name(self):
+        model_path = self.path/'etc/carthage/model_name'
+        model_path.parent.mkdir(exist_ok=True, parents=True)
+        model_path.write_text(self.model.name)
+
+__all__ += ['SetModelName']
 
 def _checkhost(model, file=None):
     try:
@@ -75,10 +97,10 @@ class HostedMachine(Injectable):
         if model and getattr(model, 'force_locally_hosted', False): return True
         if model:
             cur_host = _checkhost(model)
-            if cur_host: return cur_host == socket.gethostname()
+            if cur_host: return cur_host == local_model_name()
         if config.locally_hosted and  host in config.locally_hosted: return True
         if (not config.locally_hosted) or 'localhost' in config.locally_hosted:
-            return host == socket.gethostname()
+            return host == local_model_name()
         return False
 
     def __init_subclass__(cls, *args, **kwargs):
@@ -90,7 +112,7 @@ class HostedMachine(Injectable):
 
 class HostedTrackerMixin(Machine):
     async def start_machine(self, **kwargs):
-        _sethost(self.model, socket.gethostname())
+        _sethost(self.model, local_model_name()())
         return await super().start_machine(**kwargs)
 
     async def stop_machine(self):
