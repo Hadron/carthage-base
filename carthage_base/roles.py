@@ -37,7 +37,7 @@ class DhcpRole(MachineModel, template = True):
         async def install_software(self):
             await self.run_command('apt', 'update')
             await self.run_command("apt", "-y", "install", "dnsmasq")
-            await self.run_command("systemctl", "disable", "--now", "systemd-resolved")
+            await self.run_command('apt', '-y', 'remove', 'systemd-resolved')
             async with self.filesystem_access() as path:
                 try: Path(path).joinpath("etc/resolv.conf").unlink()
                 except FileNotFoundError: pass
