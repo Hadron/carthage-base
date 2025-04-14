@@ -470,7 +470,7 @@ async def gitlab_runner_vars(*, model, ainjector):
     '''
     assert hasattr(model, 'gitlab_runners')
     return dict(
-        runners= await resolve_deferred(ainjector, item=model.gitlab_runners, args={}))
+        runners= await resolve_deferred(ainjector, item=model.gitlab_runners, args={'model':model}))
 
 class GitlabRunnerRole(MachineModel, template=True):
 
@@ -490,14 +490,14 @@ class GitlabRunnerRole(MachineModel, template=True):
       * volumes (for docker; literally substituted as a string into the toml)
 
       And the following optional parameters:
-      * boulds_dir
+      * builds_dir
       * cache_dir
     '''
 
     class runner_customization(FilesystemCustomization):
         description = "Set up gitlab runner"
 
-        runner_role = ansible_role_task('gitlab-runner', vars=gitlab_runner_vars)
+        runner_role = ansible_role_task('install-gitlab-runner', vars=gitlab_runner_vars)
         
         
 __all__ += ['GitlabRunnerRole']
