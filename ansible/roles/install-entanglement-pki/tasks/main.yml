@@ -1,1 +1,1 @@
-- apt: name=hadron-entanglement-cli state=present
+- apt: name=hadron-entanglement-cli state=present update_cache=yes
