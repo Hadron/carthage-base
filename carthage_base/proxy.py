@@ -84,7 +84,7 @@ class ProxyService(InjectableModel):
         self.upstream = upstream
         self.downstream = downstream
         if not service:
-            service = self.downstream_url.netloc+'-'+self.upstream_url.scheme
+            service = self.downstream_url.netloc+'-'+self.downstream_url.scheme
         self.service = service
         if public_name:
             self.public_name = public_name
@@ -522,6 +522,10 @@ class ProxyContainerImage(ProxyImageRole, PodmanImageModel):
 
 __all__ += ['ProxyContainerImage']
 
+public_name_key = InjectionKey('carthage_base.public_name')
+
+__all__ += ['public_name_key']
+
 class ProxySystemDependency(SystemDependency):
 
     name = 'proxy_dependency'
@@ -539,13 +543,17 @@ def find_proxy_server(config):
     '''
     return config.server
 
+@inject(model=AbstractMachineModel)
+def default_public_name(model):
+    return model.name
+
 class ProxyServiceRole(MachineModel, AsyncInjectable, template=True):
 
     add_provider(ProxySystemDependency())
     add_provider(pki.contact_trust_store_key, injector_xref(
         InjectionKey(ProxyProtocol),
         pki.contact_trust_store_key))
-    
+    add_provider(public_name_key, default_public_name, overridable_default=True)
     async def proxy_address(self, server:ProxyProtocol):
         '''
         Returns the address at which the proxy should contact this proxy service.
@@ -584,10 +592,40 @@ LetsEncryptStagingCustomization = carthage.pki.install_root_cert_customization(l
 
 __all__ += ['LetsEncryptStagingCustomization']
 
+def build_proxy_service(service, ssl:bool=True, force_ip:bool=False):
+    '''
+    Usage::
+
+        add-provider(build_proxy_service('keycloak', ssl=False))
+
+    Will generate the service based on public_name_key.  Will use *upstream_ip* if *force_ip* or if the model's name is the same as the public_name.
+
+    '''
+    @inject(public_name=public_name_key,
+            model=AbstractMachineModel)
+    def service(public_name, model):
+        nonlocal force_ip
+        if model.name == public_name:
+            force_ip = True
+        upstream_name = model.name if not force_ip else '{upstream_ip}'
+        upstream_proto = 'https' if ssl else 'http'
+        upstream = f'{upstream_proto}://{upstream_name}/'
+        return ProxyService(
+            service=service,
+            downstream=f'https://{public_name}/',
+            upstream=upstream)
+    return service
+
+__all__ += ['build_proxy_service']
+
 async def public_names_for(model):
     '''
-    Return all the public names for a model based on ProxyServices it provides
+    Return all the public names for a model based on ProxyServices it provides and on its public_name_key.
     '''
+    try:
+        public_name = await model.ainjector.get_instance_async(public_name_key)
+    except KeyError:
+        public_name = None
     config = model.injector(ProxyConfig)
     filter_result = await model.ainjector.filter_instantiate_async(
         ProxyService, ['service'],
@@ -595,6 +633,9 @@ async def public_names_for(model):
     services =[x[1] for x in filter_result]
     for s in services:
             await s.resolve_for_model(model, config)
-    return list(set(s.public_name for s in services if s.public_name))
+    public_names = set(s.public_name for s in services if s.public_name)
+    if public_name:
+        public_names |= public_name
+    return list(public_names)
 
 __all__ += ['public_names_for']
