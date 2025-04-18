@@ -169,7 +169,9 @@ class ContainedEntanglementPkiManager(PkiManager):
                     '--ca-name='+self.ca_name)
                 return ca_path.read_text()
 
-    async def issue_credentials(self, dns_name, tag):
+    async def issue_credentials(self, hostname, tag, *,
+                                ou=None, ):
+        dns_name = hostname
         machine = self.machine
         if isinstance(self, MachineModel):
             await machine.async_become_ready()
@@ -177,6 +179,10 @@ class ContainedEntanglementPkiManager(PkiManager):
         async with cust.customization_context:
             pki_dir = cust.path.joinpath(self.pki_access_dir or self.pki_dir)
             pki_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+            options = []
+            if ou:
+                carthage.utils.validate_shell_safe(ou)
+                options.append('--subj=/OU='+ou)
             await cust.run_command(
                 'entanglement-pki',
                 '--force',
