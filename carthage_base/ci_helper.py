@@ -45,9 +45,15 @@ class DumpAddressesCommand(CarthageRunnerCommand):
         for model in await layout.all_models():
             if isinstance(model, ProxyProtocol):
                 proxy = model
+        if proxy:
+            config = proxy.injector.get_instance(ProxyConfig)
+            first_link = next(iter(proxy.network_links.values()))
+            proxy_address = str(first_link.merged_v4_config.address)
+            service_names = set(s.public_name for s in config.services.values())
+            print(f'{proxy_address}\t{" ".join(service_names)}')
+        else:
+            service_names = set()
         for model in await layout.all_models():
-            if proxy and isinstance(model, ProxyServiceRole):
-                continue
             try:
                 network_links = model.network_links
             except AttributeError: continue
@@ -56,13 +62,10 @@ class DumpAddressesCommand(CarthageRunnerCommand):
                     link.net.assign_addresses()
                     networks.add(link.net)
                 if link.merged_v4_config and link.merged_v4_config.address:
-                    print(f'{link.merged_v4_config.address}\t{link.dns_name or model.name}')
-        if proxy:
-            config = proxy.injector.get_instance(ProxyConfig)
-            first_link = next(iter(proxy.network_links.values()))
-            proxy_address = str(first_link.merged_v4_config.address)
-            service_names = set(s.public_name for s in config.services.values())
-            print(f'{proxy_address}\t{" ".join(service_names)}')
+                    name = link.dns_name or model.name
+                    if name in service_names:
+                        continue
+                    print(f'{link.merged_v4_config.address}\t{name}')
             
     def setup_subparser(self, subparser):
         pass
