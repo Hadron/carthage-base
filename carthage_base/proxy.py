@@ -35,7 +35,7 @@ class CertInfo:
     domains: tuple[str]
     
 @dataclasses.dataclass()
-class ProxyService(InjectableModel):
+class ProxyService:
 
     '''Represents a service on a :class:`ProxyServiceRole` that can beg reverse proxied.
     Typical usage::
@@ -603,18 +603,22 @@ def build_proxy_service(service, ssl:bool=True, force_ip:bool=False):
     '''
     @inject(public_name=public_name_key,
             model=AbstractMachineModel)
-    def service(public_name, model):
-        nonlocal force_ip
-        if model.name == public_name:
-            force_ip = True
-        upstream_name = model.name if not force_ip else '{upstream_ip}'
-        upstream_proto = 'https' if ssl else 'http'
-        upstream = f'{upstream_proto}://{upstream_name}/'
-        return ProxyService(
+    class ThisService(ProxyService, Injectable):
+        @classmethod
+        def default_class_injection_key(cls):
+            return InjectionKey(ProxyService, service=service)
+        def __init__(self, model, public_name, **kwargs):
+            nonlocal force_ip
+            if model.name == public_name:
+                force_ip = True
+            upstream_name = model.name if not force_ip else '{upstream_ip}'
+            upstream_proto = 'https' if ssl else 'http'
+            upstream = f'{upstream_proto}://{upstream_name}/'
+            super().__init__(
             service=service,
             downstream=f'https://{public_name}/',
-            upstream=upstream)
-    return service
+            upstream=upstream, **kwargs)
+    return ThisService
 
 __all__ += ['build_proxy_service']
 
