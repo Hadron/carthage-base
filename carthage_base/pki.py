@@ -188,6 +188,7 @@ class ContainedEntanglementPkiManager(PkiManager):
                 '--force',
                 '--pki-dir=/'+str(self.pki_dir),
                 '--ca-name='+self.ca_name,
+                *options,
                 dns_name)
             return pki_dir.joinpath(dns_name+'.key').read_text(), \
                 pki_dir.joinpath(dns_name+'.pem').read_text()
