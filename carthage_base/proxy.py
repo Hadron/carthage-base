@@ -639,7 +639,7 @@ async def public_names_for(model):
             await s.resolve_for_model(model, config)
     public_names = set(s.public_name for s in services if s.public_name)
     if public_name:
-        public_names |= public_name
+        public_names |= {public_name}
     return list(public_names)
 
 __all__ += ['public_names_for']
