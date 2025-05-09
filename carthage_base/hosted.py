@@ -112,7 +112,7 @@ class HostedMachine(Injectable):
 
 class HostedTrackerMixin(Machine):
     async def start_machine(self, **kwargs):
-        _sethost(self.model, local_model_name()())
+        _sethost(self.model, local_model_name())
         return await super().start_machine(**kwargs)
 
     async def stop_machine(self):
