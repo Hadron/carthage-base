@@ -45,6 +45,7 @@ zone "${name}" {
     %endif
     ${addr_list(zone, 'also_notify')}\
     ${addr_list(zone, 'allow_transfer')}\
+${addr_list(zone, 'forwarders')}\
     };
 %endfor
 

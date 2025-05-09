@@ -6,6 +6,7 @@
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the file
 # LICENSE for details.
 
+import collections.abc
 import os.path
 from pathlib import Path
 import types
@@ -277,12 +278,13 @@ class Bind9Role(MachineModel, template=True):
 
         try: cls.zones
         except AttributeError: return
-        for name, z in cls.zones.items():
-            if 'update_keys' in z:
-                cls.add_provider(
-                                   InjectionKey(DnsZone, name=name, _globally_unique=True),
-                                   when_needed(Bind9DnsZone, name=name),
-                                   propagate=True)
+        if isinstance(cls.zones, collections.abc.Mapping):
+            for name, z in cls.zones.items():
+                if 'update_keys' in z:
+                    cls.add_provider(
+                        InjectionKey(DnsZone, name=name, _globally_unique=True),
+                        when_needed(Bind9DnsZone, name=name),
+                        propagate=True)
 
     class dns_customization(FilesystemCustomization):
 
@@ -472,7 +474,7 @@ async def gitlab_runner_vars(*, model, ainjector):
     return dict(
         runners= await resolve_deferred(ainjector, item=model.gitlab_runners, args={'model':model}))
 
-class GitlabRunnerRole(MachineModel, template=True):
+class GitlabRunnerRole(ImageRole):
 
     '''
     Use an ansible role task to set up runners.

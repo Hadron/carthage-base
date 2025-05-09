@@ -1,2 +1,7 @@
-- apt: name=bind9,dnsutils state=present install_recommends=no
+- file: path=/etc/bind/tsig_keys state=directory
+- copy:
+    dest: /etc/bind/tsig_keys/empty.key
+    content: |
+      # This file is present to make sure that the glob pattern in our named.conf.local resolves to at least one file by the time bind9 is installed.
+- apt: name=bind9,dnsutils state=present install_recommends=no update_cache=yes
   name: install bind9
