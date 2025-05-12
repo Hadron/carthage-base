@@ -34,8 +34,9 @@ class CertInfo:
     key_file: str
     domains: tuple[str]
     
+# is subclass of Injectable so default_instance_injection_key works
 @dataclasses.dataclass()
-class ProxyService:
+class ProxyService(Injectable):
 
     '''Represents a service on a :class:`ProxyServiceRole` that can beg reverse proxied.
     Typical usage::
@@ -54,8 +55,11 @@ class ProxyService:
     ``{name}``
         The name of the model.
 
-    ``{{upstream_ip}}``
-        An ip address on which the proxy can contact the service. 
+    ``{upstream_ip}``
+        An ip address on which the proxy can contact the service.
+
+    ``{public_name}``
+         The result of instantiating the :data:`public_name_key` against the model.
     '''
     
     upstream_url:urllib.parse.ParseResult #: URL that the proxy should contact to reach the service
@@ -66,7 +70,7 @@ class ProxyService:
 
     def __init__(
             self, *,
-            downstream:str,
+            downstream:str='https://{public_name}',
             upstream:str = None,
             public_name:str|bool = None,
             upstream_port:int = None,
@@ -84,6 +88,8 @@ class ProxyService:
         self.upstream = upstream
         self.downstream = downstream
         if not service:
+            if '{' in self.downstream:
+                raise ValueError('service must be specified if downstream contains substitutions')
             service = self.downstream_url.netloc+'-'+self.downstream_url.scheme
         self.service = service
         if public_name:
@@ -113,6 +119,10 @@ class ProxyService:
         def sub(s:str):
             s = s.replace('{name}', model.name)
             s = s.replace('{upstream_ip}', upstream_ip)
+            if public_name:
+                s = s.replace('{public_name}', public_name)
+            elif '{public_name}' in s:
+                raise ValueError('public_name_key must be  set to be substituted.')
             return s
         if hasattr(model, 'proxy_address'):
             upstream_ip = str(await resolve_deferred(
@@ -123,6 +133,7 @@ class ProxyService:
                       }))
         else:
             upstream_ip = ''
+        public_name = await model.ainjector.get_instance_async(InjectionKey(public_name_key, _optional=True))
         self.upstream = sub(self.upstream)
         self.downstream = sub(self.downstream)
 
