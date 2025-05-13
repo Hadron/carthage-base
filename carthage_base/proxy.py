@@ -130,7 +130,7 @@ class ProxyService(Injectable):
             upstream_ip = str(await resolve_deferred(
                 model.ainjector,
                 item=model.proxy_address,
-                args={'server':config.server,
+                args={'server':await model.ainjector.get_instance_async(InjectionKey(ProxyProtocol, _ready=False)),
                       'config':config,
                       }))
         else:
@@ -576,7 +576,7 @@ class ProxyServiceRole(MachineModel, AsyncInjectable, template=True):
                 return address
         try:
             return self.ip_address
-        except NotImplementedError:
+        except (NotImplementedError, AttributeError):
             raise RuntimeError('Could not find address for proxy to contact on') from None
         
     async def register_proxy_map(self, config:ProxyConfig):
