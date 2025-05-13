@@ -316,7 +316,7 @@ class Bind9Role(MachineModel, template=True):
                                 36000      ; refresh (10 hours)
                                 86400      ; retry (1 day)
                                 2419200    ; expire (4 weeks)
-                                4000       ; minimum (1 hour 6 minutes 40 seconds)
+                                30       ; minimum (30 seconds)
                                 )
 {initial_records}
 ''')
