@@ -70,7 +70,7 @@ class ProxyService(Injectable):
 
     def __init__(
             self, *,
-            downstream:str='https://{public_name}',
+            downstream:str='https://{public_name}/',
             upstream:str = None,
             public_name:str|bool = None,
             upstream_port:int = None,
@@ -87,6 +87,8 @@ class ProxyService(Injectable):
             upstream = f'{proto}://{{upstream_ip}}{portstr}/'
         self.upstream = upstream
         self.downstream = downstream
+        if not self.downstream_url.path:
+            raise ValueError('downstream URL must contain a path')
         if not service:
             if '{' in self.downstream:
                 raise ValueError('service must be specified if downstream contains substitutions')
