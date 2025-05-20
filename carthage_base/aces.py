@@ -174,7 +174,12 @@ class AcesCustomizations( FilesystemCustomization):
             )
 
     aces_distribution = aces_distribution_task(use_config=True)
-    
+
+    @setup_task("Upgrade")
+    async def upgrade(self):
+        await self.run_command('apt', 'update')
+        await self.run_command('apt', '-y', '--allow-downgrades', 'upgrade')
+        
 
 
 @inject(base_image=None)
