@@ -31,4 +31,12 @@
     daemon_reload: yes
     state: started
   when: runner_service.changed
+  allow_errors: true
+  register: runner_enabled
+  
+- name: enable runner when systemd not running
+  systemd:
+    name: runner-{{runner.name}}.service
+    enabled: yes
+  when: runner_enabled.failed
   
