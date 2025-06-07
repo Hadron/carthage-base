@@ -38,5 +38,5 @@
   systemd:
     name: runner-{{runner.name}}.service
     enabled: yes
-  when: runner_enabled.failed
+  when: runner_enabled is failed
   
