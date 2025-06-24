@@ -471,7 +471,6 @@ class ProxyProtocol(MachineModel, template=True):
                 public_ips = await self.ainjector(public_ips)
             public_records = None
             private_records = None
-            logger.info('Update DNS for proxied service %s', s.public_name)
             if  public_ips:
                 public_records=[('A', public_ips)]
             if callable(private_ips):
@@ -480,6 +479,7 @@ class ProxyProtocol(MachineModel, template=True):
                 private_records = [('A', private_ips)]
             if public_ips or private_ips:
                 found_addresses = True
+                logger.info('Update DNS for proxied service %s', s.public_name)
                 await self.ainjector(
                     carthage.dns.update_dns_for,
                         public_name=s.public_name if public_records else None,
@@ -487,6 +487,8 @@ class ProxyProtocol(MachineModel, template=True):
                         public_records=public_records,
                         private_records=private_records,
                 ttl=config.dns_ttl)
+            else:
+                logger.warning(f"No public or private ips for {s.public_name}")
         return found_addresses
 
 class ProxyServerRole(ProxyProtocol, ProxyImageRole, template=True):
