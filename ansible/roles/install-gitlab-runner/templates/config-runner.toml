@@ -11,6 +11,8 @@ shutdown_timeout = 0
   builds_dir = "{{runner.builds_dir|default('/builds')}}"
   cache_dir = "{{runner.cache_dir|default('/cache')}}"
 {% if runner.executor == 'docker' %}
+[runners.feature_flags]
+    FF_NETWORK_PER_BUILD = true
   [runners.docker]
     tls_verify = false
     host = "unix://{{runner_podman_socket}}"
