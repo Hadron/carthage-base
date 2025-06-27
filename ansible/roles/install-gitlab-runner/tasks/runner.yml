@@ -3,7 +3,7 @@
   register: runner_uid
   when: runner_user != "root"
 - set_fact:
-    runner_podman_socket: /run/user/{{runner_uid.stdout|strip}}/podman/podman.sock
+    runner_podman_socket: /run/user/{{runner_uid.stdout|trim}}/podman/podman.sock
   when: runner_user != "root"
 - set_fact:
     runner_podman_socket: /run/podman/podman.sock
