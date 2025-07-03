@@ -114,7 +114,7 @@ class CertificateInstallationTask(carthage.setup_tasks.TaskWrapperBase):
             stat = cert_path.stat()
             if certificate_is_expired(cert_path.read_text(), days_left=14, fraction_left=0.33):
                 return False
-            return stat.st_mtime
+            return True
         except FileNotFoundError: return False
         except Exception:
             logger.exception('determining certificate installation')
