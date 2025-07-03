@@ -40,12 +40,12 @@ class DhcpRole(MachineModel, template = True):
             await self.run_command("apt", "-y", "install", "dnsmasq")
             await self.run_command('apt', '-y', 'remove', 'systemd-resolved')
             async with self.filesystem_access() as path:
-                try: Path(path).joinpath("etc/resolv.conf").unlink()
-                except FileNotFoundError: pass
-                with                                     Path(path).joinpath("etc/resolv.conf").open("wt") as f:
+                try:
+                    Path(path).joinpath("etc/resolv.conf").unlink()
+                except FileNotFoundError:
+                    pass
+                with Path(path).joinpath("etc/resolv.conf").open("wt") as f:
                     f.write("nameserver 127.0.0.1\n")
-
-
 
         install_mako = install_mako_task('model')
 
