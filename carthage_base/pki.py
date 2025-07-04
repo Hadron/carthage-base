@@ -311,7 +311,6 @@ dns_rfc2136_port = {port}
                 '--cert-name', cert_name,
                 '--dns-rfc2136',
                 '-d', hostname,
-                '--no-autorenew'
             )
         async with self.certbot_access() as path:
             key = path/cert_name/'privkey.pem'
