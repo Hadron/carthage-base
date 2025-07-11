@@ -172,7 +172,7 @@ class ContainedEntanglementPkiManager(PkiManager):
     async def issue_credentials(self, hostname, tag, *,
                                 ou=None, ):
         dns_name = hostname
-        machine = self.machine
+        machine = await self.ainjector.get_instance_async(InjectionKey(Machine, _ready=False))
         if isinstance(self, MachineModel):
             await machine.async_become_ready()
         cust = await machine.ainjector(FilesystemCustomization, machine)
