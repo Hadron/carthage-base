@@ -1,12 +1,31 @@
+# Copyright (C) 2018, 2019, 2020, 2021, 2022, 2023, 2025, Hadron Industries, Inc.
+# Carthage is free software; you can redistribute it and/or modify
+# it under the terms of the GNU Lesser General Public License version 3
+# as published by the Free Software Foundation. It is distributed
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the file
+# LICENSE for details.
 import carthage
+import carthage.pki
+import carthage.pki_utils as pki_utils
 from carthage import *
-from carthage_aws import *
 from pathlib import Path
 import cryptography
 import logging
 import dataclasses
 import re
 import pathlib
+from cryptography.hazmat.primitives import serialization
+
+def serialize_certificate(cert):
+    s = cert.public_bytes(encoding=serialization.Encoding.PEM).decode('ascii')
+    return s
+
+def serialize_key(key):
+    s = key.private_bytes(encoding=serialization.Encoding.PEM,
+                          format=serialization.PrivateFormat.PKCS8,
+                          encryption_algorithm=serialization.NoEncryption())
+    return s.decode('ascii')
 
 @dataclasses.dataclass()
 class PkiReference:
@@ -14,10 +33,9 @@ class PkiReference:
     ref: object
     obj: object
 
-@inject_autokwargs(ainjector=AsyncInjector)
-class PkiIndexer(AsyncInjectable):
+class PkiIndexer(carthage.pki.PkiManager):
 
-    def __init__(self, *, baseurl=None, **kwargs):
+    def __init__(self,  **kwargs):
         super().__init__(**kwargs)
         self.keys_by_nums = dict()
         self.csrs_by_nums = dict()
@@ -26,10 +44,10 @@ class PkiIndexer(AsyncInjectable):
         self.certs_by_nums = dict()
         self.certs_by_dnsname = dict()
         self.certs_by_subject = dict()
+        self.hostname_tags = {}
 
     async def async_ready(self):
         await self.index_certificates()
-        # await self.relocate_certificates()
         await super().async_ready()
 
     async def index_certificates(self):
@@ -38,8 +56,20 @@ class PkiIndexer(AsyncInjectable):
     async def relocate_certificates(self):
         return
 
-    def _process_key(self, k, key):
+    async def issue_credentials(self, hostname:str, tag:str):
+        tags = self.hostname_tags.setdefault(hostname, set())
+        if tag in tags:
+            raise ValueError(f'Duplicate tag {tag} for {hostname}')
+        tags.add(tag)
+        certs = await self.certificates_for(hostname)
+        key = await self.key_for(hostname)
+        return serialize_key(key), pki_utils.x509_annotate('\n'.join(serialize_certificate(cert) for cert in certs))
 
+    async def trust_store(self):
+        trust_roots = {ref.ref:ref.obj for ref in self.certs_by_nums.values() if ref.obj.subject == ref.obj.issuer}
+        return await self.ainjector(carthage.pki.SimpleTrustStore, 'pki_indexer', trust_roots)
+
+    def _process_key(self, k, key):
         pk = key.public_key()
         nums = pk.public_numbers()
         self.keys_by_nums[nums] = PkiReference(source=self, ref=k, obj=key)
@@ -81,13 +111,14 @@ class PkiIndexer(AsyncInjectable):
             m = re.search(b'^-----BEGIN ([A-Z][A-Z ]+[A-Z])-----[\r\n]+', s, re.MULTILINE)
             if m is None: return
             m2 = re.search(b'^-----END ' + m.group(1) + b'-----[\r\n]+', s[m.span()[1]:], re.MULTILINE)
-            assert m2, breakpoint()
+            assert m2
             r = s[m.span()[0] : m2.span()[1] + m.span()[1]]
             s = s[m2.span()[1] + m.span()[1]:]
             yield r
 
     def _process_bytes(self, k, ss):
-
+        if isinstance(ss, str):
+            ss = ss.encode('utf-8')
         ret = []
 
         try:
@@ -98,7 +129,6 @@ class PkiIndexer(AsyncInjectable):
             pass
 
         for s in self._iterate_pem(ss):
-
             if (b'-----BEGIN PRIVATE KEY-----' in s) \
                or (b'-----BEGIN RSA PRIVATE KEY-----' in s):
                 key = cryptography.hazmat.primitives.serialization.load_pem_private_key(s, password=None)
@@ -117,15 +147,7 @@ class PkiIndexer(AsyncInjectable):
 
         return ret
 
-    async def trust_store(self):
-        return None
 
-    async def trustroot_for(self, hn):
-
-        certs = await self.certificates_for(hn, include_trustroot=True)
-        cur = certs[-1]
-        assert (cur.issuer == cur.subject)
-        return cur
 
     async def validate_for(self, manifest):
 
@@ -179,7 +201,7 @@ class PkiIndexer(AsyncInjectable):
             if wildcard in self.certs_by_dnsname:
                 options = self.certs_by_dnsname[wildcard]
                 if len(options) > 1:
-                    breakpoint() # raise ValueError(options)
+                    raise ValueError(options)
                 cur = options[0].obj
 
         if cur is None:
@@ -194,10 +216,13 @@ class PkiIndexer(AsyncInjectable):
                     ret.append(cur)
                 break
             ret.append(cur)
-            cur = self.certs_by_subject[cur.issuer].obj
+            try:
+                cur = self.certs_by_subject[cur.issuer].obj
+            except KeyError:
+                break
         return ret
 
-@inject_autokwargs(ainjector=AsyncInjector, config_layout=ConfigLayout)
+
 class PkiIndexerZip(PkiIndexer):
 
     def __init__(self, path, **kwargs):
@@ -218,7 +243,7 @@ class PkiIndexerZip(PkiIndexer):
 
         await self.validate()
 
-@inject_autokwargs(ainjector=AsyncInjector, config_layout=ConfigLayout)
+
 class PkiIndexerPath(PkiIndexer):
 
     def __init__(self, path, **kwargs):
@@ -239,7 +264,6 @@ class PkiIndexerPath(PkiIndexer):
 
         await self.validate()
 
-@inject_autokwargs(ainjector=AsyncInjector, config_layout=ConfigLayout)
 class PkiIndexerMulti(PkiIndexer):
 
     def __init__(self, *args, **kwargs):
