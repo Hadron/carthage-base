@@ -17,7 +17,7 @@ from carthage.modeling import *
 from carthage.ansible import ansible_role_task
 import carthage.setup_tasks
 from carthage.pki import *
-
+from carthage_base import proxy
 
 __all__ = []
 
@@ -77,17 +77,18 @@ class CertificateInstallationTask(carthage.setup_tasks.TaskWrapperBase):
         ainjector = instance.ainjector
         results = await resolve_deferred(
             ainjector,
-    item=[self.dns_name, self.cert, self.key, self.ca],
-    args={})
+            item=[self.dns_name, self.cert, self.key, self.ca],
+            args={})
         results = (results[0],)+tuple((relative_path(x) if x is not None else None) for x in results[1:])
         return results
         
     async def func(self, instance, pki):
         path = self._path(instance)
         dns_name, cert, key, ca = await self._resolve_args(instance)
-        dns_name = dns_name or instance.name
-        carthage.utils.validate_shell_safe(dns_name)
-        key_pem, cert_pem = await pki.issue_credentials(dns_name, f'Credentials for {cert}')
+        public_name = await instance.ainjector.get_instance_async(InjectionKey(proxy.public_name_key, _optional=True))
+        issue_name = dns_name or public_name or instance.name
+        carthage.utils.validate_shell_safe(issue_name)
+        key_pem, cert_pem = await pki.issue_credentials(issue_name, f'Credentials for {cert}')
         trust_store = await  pki.trust_store()
         ca_file = await trust_store.ca_file()
         ca_pem = ca_file.read_text()
@@ -109,7 +110,7 @@ class CertificateInstallationTask(carthage.setup_tasks.TaskWrapperBase):
     async def check_completed_func(self, instance):
         try:
             path = self._path(instance)
-            dns_name, cert, *rest = await self._resolve_args(instance)
+            _, cert, *rest = await self._resolve_args(instance)
             cert_path = (path/cert)
             stat = cert_path.stat()
             if certificate_is_expired(cert_path.read_text(), days_left=14, fraction_left=0.33):
