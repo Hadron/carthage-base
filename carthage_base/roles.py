@@ -8,6 +8,7 @@
 
 import collections.abc
 import os.path
+import sh
 from pathlib import Path
 import types
 import carthage
@@ -120,6 +121,35 @@ class CarthageServerRole(ImageRole):
 
 
 __all__ += ['CarthageServerRole']
+
+class LibvirtServerRole(MachineModel, template=True):
+    override_dependencies = True
+
+    class LibvirtServerRoleMachineCustomization(MachineCustomization):
+        @setup_task("Install Libvirt")
+        async def install_libvirt(self):
+            await self.run_command("sh", "-c", "apt update && apt install -y nfs-common libvirt-daemon-system ovmf git dosfstools tmux fai-server")
+
+        @install_libvirt.check_completed()
+        async def install_libvirt(self):
+            try:
+                rc = await self.run_command("dpkg", "-l", "libvirt-daemon-system")
+                return True
+            except sh.ErrorReturnCode_1:
+                return False
+
+    class LibvirtServerRoleFilesystemCustomization(FilesystemCustomization):
+        @setup_task("Enable nested virtualization")
+        async def enable_nested_virt(self):
+            with self.filesystem_access() as fs:
+                return (fs/"etc/modprobe.d/10-carthage-kvm-intel.conf").write_text("options kvm_intel nested=y")
+
+        @enable_nested_virt.check_completed()
+        async def enable_nested_virt(self):
+            with self.filesystem_access() as fs:
+                return (fs/"etc/modprobe.d/10-carthage-kvm-intel.conf").is_file()
+
+__all__ += ["LibvirtServerRole"]
 
 @inject(authorized_keys=carthage.ssh.AuthorizedKeysFile)
 class SonicMachineMixin(Machine, SetupTaskMixin):
