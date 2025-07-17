@@ -66,7 +66,7 @@ class PkiIndexer(carthage.pki.PkiManager):
         return serialize_key(key), pki_utils.x509_annotate('\n'.join(serialize_certificate(cert) for cert in certs))
 
     async def trust_store(self):
-        trust_roots = {ref.ref:ref.obj for ref in self.certs_by_nums.values() if ref.obj.subject == ref.obj.issuer}
+        trust_roots = {ref.ref:serialize_certificate(ref.obj) for ref in self.certs_by_nums.values() if ref.obj.subject == ref.obj.issuer}
         return await self.ainjector(carthage.pki.SimpleTrustStore, 'pki_indexer', trust_roots)
 
     def _process_key(self, k, key):
