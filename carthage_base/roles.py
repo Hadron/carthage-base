@@ -24,9 +24,10 @@ from . import dns
 
 __all__ = []
 
-class DhcpRole(MachineModel, template = True):
+class DnsmasqRole(MachineModel, template = True):
 
     override_dependencies = True
+    dnsmasq_replace_resolv_conf = True
 
     dnsmasq_conf = mako_task("dhcp-dnsmasq.conf",
                              output = "etc/dnsmasq.d/dhcp.conf",
@@ -38,14 +39,15 @@ class DhcpRole(MachineModel, template = True):
         async def install_software(self):
             await self.run_command('apt', 'update')
             await self.run_command("apt", "-y", "install", "dnsmasq")
-            await self.run_command('apt', '-y', 'remove', 'systemd-resolved')
-            async with self.filesystem_access() as path:
-                try:
-                    Path(path).joinpath("etc/resolv.conf").unlink()
-                except FileNotFoundError:
-                    pass
-                with Path(path).joinpath("etc/resolv.conf").open("wt") as f:
-                    f.write("nameserver 127.0.0.1\n")
+            if self.model.dnsmasq_replace_resolv_conf:
+                await self.run_command('apt', '-y', 'remove', 'systemd-resolved')
+                async with self.filesystem_access() as path:
+                    try:
+                        Path(path).joinpath("etc/resolv.conf").unlink()
+                    except FileNotFoundError:
+                        pass
+                    with Path(path).joinpath("etc/resolv.conf").open("wt") as f:
+                        f.write("nameserver 127.0.0.1\n")
 
         install_mako = install_mako_task('model')
 
@@ -53,6 +55,10 @@ class DhcpRole(MachineModel, template = True):
         async def restart_dnsmasq(self):
             if not self.running: return
             await self.run_command('systemctl', 'restart', 'dnsmasq')
+__all__ += ['DnsmasqRole']
+
+# temporary backward compatibility
+DhcpRole = DnsmasqRole
 __all__ += ['DhcpRole']
 
 class CarthageServerRole(ImageRole):
