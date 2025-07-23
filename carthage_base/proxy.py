@@ -573,6 +573,8 @@ class ProxyServiceRole(MachineModel, AsyncInjectable, template=True):
         '''
         Returns the address at which the proxy should contact this proxy service.
         '''
+        for net in set(l.net for l in self.network_links.values()):
+            net.assign_addresses()
         for links in shared_network_links(self.network_links, server.network_links):
             if address := links[0].merged_v4_config.address:
                 return address
