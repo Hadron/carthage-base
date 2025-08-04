@@ -149,7 +149,7 @@ class ContainedEntanglementPkiManager(PkiManager):
         self.pki_dir = relative_path(self.__class__.pki_dir)
         # It's important that self.pki_access_dir not be relative pathed.
     async def ca_cert_pem(self):
-        machine = self.machine
+        machine = await self.ainjector.get_instance_async(InjectionKey(carthage.machine.Machine, _ready=False))
         if isinstance(self, MachineModel):
             await machine.async_become_ready()
         cust = await machine.ainjector(FilesystemCustomization, machine)
