@@ -2,10 +2,12 @@
   command: id -u {{runner_user}}
   register: runner_uid
   when: runner_user != "root"
-- set_fact:
+- name: Set rootless podman socket
+  set_fact:
     runner_podman_socket: /run/user/{{runner_uid.stdout|trim}}/podman/podman.sock
   when: runner_user != "root"
-- set_fact:
+- name: Set rootful podman socket
+  set_fact:
     runner_podman_socket: /run/podman/podman.sock
   when: runner_user == "root"
 - name: Installing runner config
