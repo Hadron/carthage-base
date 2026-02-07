@@ -12,7 +12,7 @@ from carthage.ansible import *
 
 from .images import *
 from .hosted import *
-from carthage.vm import vm_image_key
+from carthage.libvirt import vm_image_key
 
 __all__ = []
 

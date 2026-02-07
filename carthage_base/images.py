@@ -10,7 +10,7 @@ from carthage import *
 from carthage.modeling import *
 import carthage
 from carthage.debian import *
-from carthage.vm import vm_image_key
+from carthage.libvirt import vm_image_key
 from carthage.systemd import SystemdNetworkModelMixin
 from pathlib import Path
 from carthage import debian

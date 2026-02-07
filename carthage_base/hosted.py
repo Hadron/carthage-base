@@ -13,7 +13,7 @@ import types
 from pathlib import Path
 from carthage import *
 import carthage.container
-import carthage.vm
+import carthage.libvirt
 import carthage.local
 from carthage.machine import BareMetalMachine
 
@@ -125,7 +125,7 @@ class HostedContainer(HostedMachine):
     implementation = carthage.container.Container
 
 class HostedVm(HostedMachine):
-    implementation = carthage.vm.Vm
+    implementation = carthage.libvirt.Vm
 
 @inject(host=None,
         model=InjectionKey(AbstractMachineModel, _ready=False))
