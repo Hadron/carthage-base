@@ -1,3 +1,10 @@
+- name: Ensure non-root runner user exists
+  user:
+    name: "{{runner_user}}"
+    state: present
+    create_home: yes
+  when: runner_user != "root"
+
 - name: collect runner uid
   command: id -u {{runner_user}}
   register: runner_uid
@@ -10,17 +17,64 @@
   set_fact:
     runner_podman_socket: /run/podman/podman.sock
   when: runner_user == "root"
+- name: Configure user systemd and podman socket for rootless docker runner
+  block:
+    - name: Enable linger for rootless runner user
+      command: loginctl enable-linger {{runner_user}}
+      args:
+        creates: /var/lib/systemd/linger/{{runner_user}}
+
+    - name: Start user systemd manager for rootless runner
+      systemd:
+        name: user@{{runner_uid.stdout|trim}}.service
+        state: started
+
+    - name: Enable rootless podman socket for runner user
+      command: systemctl --user enable --now podman.socket
+      become: yes
+      become_user: "{{runner_user}}"
+      environment:
+        XDG_RUNTIME_DIR: /run/user/{{runner_uid.stdout|trim}}
+        DBUS_SESSION_BUS_ADDRESS: unix:path=/run/user/{{runner_uid.stdout|trim}}/bus
+  when:
+    - runner_user != "root"
+    - runner.executor == "docker"
+    - (ansible_service_mgr | default('')) == "systemd"
 - name: Installing runner config
   template:
     src: config-runner.toml
     dest: /etc/gitlab-runner/config-{{runner.name}}.toml
     force: no # at least until we have a way to handle tokens
+- name: giving permission for runner config directory
+  ansible.posix.acl:
+    path: /etc/gitlab-runner
+    entity: '{{runner_user}}'
+    etype: user
+    permissions: rx
+  when: runner_user != "root"
 - name: giving permission for runner config
   ansible.posix.acl:
     path: /etc/gitlab-runner/config-{{runner.name}}.toml
     entity: '{{runner_user}}'
     etype: user
     permissions: r
+  when: runner_user != "root"
+- name: Ensure runner system id file exists
+  copy:
+    content: ""
+    dest: /etc/gitlab-runner/.runner_system_id
+    force: no
+    mode: "0640"
+    owner: root
+    group: root
+  when: runner_user != "root"
+- name: giving permission for runner system id
+  ansible.posix.acl:
+    path: /etc/gitlab-runner/.runner_system_id
+    entity: '{{runner_user}}'
+    etype: user
+    permissions: rw
+  when: runner_user != "root"
 - name: installing runner service
   template:
     src: runner.service
