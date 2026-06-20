@@ -58,7 +58,7 @@ class test_layout(CarthageLayout, PublicDnsManagement):
         name = 'bind9'
 
     @provides("proxy_image")
-    class proxy_image(ProxyImageRole, PodmanImageModel):
+    class proxy_image(NginxProxyImageRole, PodmanImageModel):
         oci_image_tag = 'proxy:latest'
 
     class aws_net(NetworkModel):
@@ -92,7 +92,7 @@ class test_layout(CarthageLayout, PublicDnsManagement):
             add('eth0', mac=None, net=InjectionKey('aws_net'))
             
 
-    class webserver(ProxyServerRole, PkiCertRole):
+    class webserver(PkiCertRole, NginxProxyRole):
         add_provider(OciExposedPort(80, host_port=8801))
         add_provider(OciExposedPort(443, host_port=8802))
         add_provider(oci_container_image, injector_access(proxy_image))

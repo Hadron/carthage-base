@@ -239,6 +239,25 @@ class ProxyImageRole(ImageRole):
 
 __all__ += ['ProxyImageRole']
 
+ApacheProxyImageRole = ProxyImageRole
+
+__all__ += ['ApacheProxyImageRole']
+
+class NginxProxyImageRole(ImageRole):
+
+    class proxy_customizations(FilesystemCustomization):
+
+        runas_user = 'root'
+
+        @setup_task("Install Software")
+        async def install_software(self):
+            await self.run_command(
+                'apt', 'update')
+            await self.run_command(
+                'apt', '-y', 'install', 'nginx')
+
+__all__ += ['NginxProxyImageRole']
+
 class CertbotCertRole(ImageRole, SetupTaskMixin, AsyncInjectable):
 
     '''
@@ -501,7 +520,7 @@ class ProxyServerRole(ProxyProtocol, ProxyImageRole, template=True):
         self.injector.replace_provider(InjectionKey('by_server_path'), self.by_server_path)
                                        
     
-    proxy_conf_task = mako_task('proxy.conf', by_server_path=InjectionKey('by_server_path'),
+    proxy_conf_task = mako_task('apache/proxy.conf', by_server_path=InjectionKey('by_server_path'),
                                 certs_by_domain=InjectionKey('certs_by_domain'),
                                 output='etc/apache2/conf-enabled/proxy.conf')
 
@@ -529,6 +548,50 @@ class ProxyServerRole(ProxyProtocol, ProxyImageRole, template=True):
             
 __all__ += ['ProxyServerRole']
 
+ApacheProxyRole = ProxyServerRole
+ApacheProxyServerRole = ProxyServerRole
+
+__all__ += ['ApacheProxyRole', 'ApacheProxyServerRole']
+
+class NginxProxyRole(ProxyProtocol, NginxProxyImageRole, template=True):
+
+    self_provider(InjectionKey(ProxyProtocol))
+    add_provider(ProxyConfig)
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.injector.replace_provider(InjectionKey('by_server_path'), self.by_server_path)
+
+    proxy_conf_task = mako_task('nginx/proxy.conf', by_server_path=InjectionKey('by_server_path'),
+                                certs_by_domain=InjectionKey('certs_by_domain'),
+                                output='etc/nginx/conf.d/proxy.conf')
+
+    @inject(config=ProxyConfig)
+    async def by_server_path(self, config):
+        return config.by_downstream_server_path()
+
+    @inject(config=ProxyConfig)
+    async def certs_by_domain(config):
+        return config.certs_by_server()
+
+    async def setup_certificate_info(self):
+        '''
+        Called after all proxy services have been registered to actually populate ProxyConfig.certificates.
+        A stub; implemented in certificate roles.
+        '''
+        if hasattr(super(), 'setup_certificate_info'):
+            raise TypeError('NginxProxyRole needs to come to the right of any certificate provider.')
+
+    class proxy_server_cust(FilesystemCustomization):
+        runas_user = 'root'
+        install_mako = install_mako_task('model')
+
+__all__ += ['NginxProxyRole']
+
+NginxProxyServerRole = NginxProxyRole
+
+__all__ += ['NginxProxyServerRole']
+
 @inject(base_image=None)
 class ProxyContainerImage(ProxyImageRole, PodmanImageModel):
     oci_image_tag = 'localhost/proxy:latest'
@@ -536,6 +599,23 @@ class ProxyContainerImage(ProxyImageRole, PodmanImageModel):
     oci_image_command = ['apache2ctl', '-D', 'FOREGROUND']
 
 __all__ += ['ProxyContainerImage']
+
+ApacheProxyImage = ProxyContainerImage
+ApacheProxyContainerImage = ProxyContainerImage
+
+__all__ += ['ApacheProxyImage', 'ApacheProxyContainerImage']
+
+@inject(base_image=None)
+class NginxProxyImage(NginxProxyImageRole, PodmanImageModel):
+    oci_image_tag = 'localhost/nginx-proxy:latest'
+    base_image = 'debian:latest'
+    oci_image_command = ['nginx', '-g', 'daemon off;']
+
+__all__ += ['NginxProxyImage']
+
+NginxProxyContainerImage = NginxProxyImage
+
+__all__ += ['NginxProxyContainerImage']
 
 public_name_key = InjectionKey('carthage_base.public_name')
 
