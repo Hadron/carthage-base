@@ -545,7 +545,11 @@ class ProxyServerRole(ProxyProtocol, ProxyImageRole, template=True):
         runas_user = 'root'
         install_mako = install_mako_task('model')
 
-            
+        @setup_task("Reload Apache configuration")
+        async def reload_config(self):
+            await self.run_command('apache2ctl', '-k', 'graceful')
+
+
 __all__ += ['ProxyServerRole']
 
 ApacheProxyRole = ProxyServerRole
@@ -582,9 +586,14 @@ class NginxProxyRole(ProxyProtocol, NginxProxyImageRole, template=True):
         if hasattr(super(), 'setup_certificate_info'):
             raise TypeError('NginxProxyRole needs to come to the right of any certificate provider.')
 
+
     class proxy_server_cust(FilesystemCustomization):
         runas_user = 'root'
         install_mako = install_mako_task('model')
+
+        @setup_task("Reload Nginx configuration")
+        async def reload_config(self):
+            await self.run_command('nginx', '-s', 'reload')
 
 __all__ += ['NginxProxyRole']
 
