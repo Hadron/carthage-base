@@ -1,4 +1,4 @@
-# Copyright (C) 2023, 2024, 2025, Hadron Industries, Inc.
+# Copyright (C) 2023, 2024, 2025, 2026, Hadron Industries, Inc.
 # Carthage is free software; you can redistribute it and/or modify
 # it under the terms of the GNU Lesser General Public License version 3
 # as published by the Free Software Foundation. It is distributed
@@ -10,6 +10,7 @@ import dataclasses
 import os
 from pathlib import Path
 import typing
+from typing import TypedDict
 from urllib.parse import urlparse
 import urllib
 from ipaddress import IPv4Address
@@ -33,6 +34,15 @@ class CertInfo:
     cert_file: str
     key_file: str
     domains: tuple[str]
+
+
+class CertbotConfig(TypedDict):
+    #: The apt package name for the certbot plugin (e.g., 'python3-certbot-apache')
+    plugin_package: str
+    #: The shell command to reload the proxy server after certificate renewal
+    deploy_hook: str
+    #: The certbot CLI flag specifying the plugin (e.g., '--apache', '--nginx')
+    cli_plugin: str
     
 # is subclass of Injectable so default_instance_injection_key works
 @dataclasses.dataclass()
@@ -67,6 +77,9 @@ class ProxyService(Injectable):
     service: str #:A name to identify the service; the service and protocol need to be unique in the context of a given :class:`ProxyConfig`
 
     public_name: str = None #: The public name under which the service is registered in DNS; if downstream is set, must be the same as the netloc of the downstream URL.
+    ssl_name: str | None = None #: Name to verify the upstream certificate against. If set, SSL
+                        #verification will use this name instead of the upstream server name.
+                        #Defaults to {name} substitution. Set to None to disable explicit name verification.
 
     def __init__(
             self, *,
@@ -74,7 +87,8 @@ class ProxyService(Injectable):
             upstream:str = None,
             public_name:str|bool = None,
             upstream_port:int = None,
-            service=None
+            service=None,
+            ssl_name: str | None = "{name}"
             ):
         if not upstream and not upstream_port:
             raise TypeError('Either upstream or upstream_port is required')
@@ -98,6 +112,7 @@ class ProxyService(Injectable):
             self.public_name = public_name
         elif public_name is False:
             self.public_name = None
+        self.ssl_name = ssl_name
 
     @property
     def downstream(self):
@@ -138,6 +153,8 @@ class ProxyService(Injectable):
         public_name = await model.ainjector.get_instance_async(InjectionKey(public_name_key, _optional=True))
         self.upstream = sub(self.upstream)
         self.downstream = sub(self.downstream)
+        if self.ssl_name is not None:
+            self.ssl_name = sub(self.ssl_name)
 
     def default_instance_injection_key(self):
         return InjectionKey(ProxyService, service=self.service)
@@ -301,15 +318,19 @@ class CertbotCertRole(ImageRole, SetupTaskMixin, AsyncInjectable):
         @setup_task("Install Certbot")
         async def install_certbot_task(self):
             await self.run_command('apt', 'update')
+            
+            # Get certbot config from the proxy
+            cb_config = self.model.certbot_config
+            
             await self.run_command(
                 'apt', '-y', 'install',
-                'certbot', 'python3-certbot-apache'
+                'certbot', cb_config['plugin_package']
                 )
-            fn = self.path/'etc/letsencrypt/renewal-hooks/deploy/10-apache'
+            fn = self.path/'etc/letsencrypt/renewal-hooks/deploy/10-proxy'
             fn.parent.mkdir(parents=True, exist_ok=True)
             with fn.open('w') as f:
-                f.write('#!/bin/bash\n\nservice apache2 reload\n')
-            await self.run_command('chmod', 'a+x', '/etc/letsencrypt/renewal-hooks/deploy/10-apache')
+                f.write('#!/bin/bash\n\n' + cb_config['deploy_hook'] + '\n')
+            await self.run_command('chmod', 'a+x', str(fn))
 
         @setup_task("get certificates")
         async def get_certificates(self):
@@ -319,11 +340,14 @@ class CertbotCertRole(ImageRole, SetupTaskMixin, AsyncInjectable):
                 if not self.model.certbot_email:
                     logger.warning('Certbot disabled because email not set')
                     raise SkipSetupTask
+                
+                cb_config = self.model.certbot_config
+                
                 test_argument = tuple() if self.model.certbot_production_certificates else ('--test-cert',)
                 await self.run_command(
                     'certbot',
                     '-n',
-                    '--apache',
+                    cb_config['cli_plugin'],
                     '-d', ','.join(domains),
                     '-n',
                     '--agree-tos',
@@ -407,6 +431,9 @@ class ProxyProtocol(MachineModel, template=True):
 
     #: If True, updateproxy dns whenever the machine starts
     update_dns_on_start:bool = True
+
+    #: Certbot configuration for this proxy type. Must be implemented by subclasses.
+    certbot_config: CertbotConfig
     
     #: A list of public IPs or a function returning public_ips
     proxy_public_ips: typing.Union[typing.Callable, list]
@@ -519,6 +546,12 @@ class ProxyServerRole(ProxyProtocol, ProxyImageRole, template=True):
         super().__init__(**kwargs)
         self.injector.replace_provider(InjectionKey('by_server_path'), self.by_server_path)
                                        
+    certbot_config: CertbotConfig = {
+        'plugin_package': 'python3-certbot-apache',
+        'deploy_hook': 'apache2ctl -k graceful',
+        'cli_plugin': '--apache',
+    }
+                                       
     
     proxy_conf_task = mako_task('apache/proxy.conf', by_server_path=InjectionKey('by_server_path'),
                                 certs_by_domain=InjectionKey('certs_by_domain'),
@@ -565,6 +598,12 @@ class NginxProxyRole(ProxyProtocol, NginxProxyImageRole, template=True):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.injector.replace_provider(InjectionKey('by_server_path'), self.by_server_path)
+
+    certbot_config: CertbotConfig = {
+        'plugin_package': 'python3-certbot-nginx',
+        'deploy_hook': 'nginx -s reload',
+        'cli_plugin': '--nginx',
+    }
 
     proxy_conf_task = mako_task('nginx/proxy.conf', by_server_path=InjectionKey('by_server_path'),
                                 certs_by_domain=InjectionKey('certs_by_domain'),
