@@ -58,7 +58,7 @@ async def find_relay_networks(model):
         attached = (link.net for link in model.network_links.values()
                     if not link.member_of or link.member_of_link.local_type == 'vpn')
 
-        relay_networks = list(dict.fromkeys(net for net in attached if net not in relay_excluded_networks))
+        relay_networks = list({net for net in attached if net not in relay_excluded_networks})
 
     return relay_networks
 
