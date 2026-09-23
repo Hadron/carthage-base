@@ -24,14 +24,108 @@ from . import dns
 
 __all__ = []
 
-class DnsmasqRole(MachineModel, template = True):
+
+def _validate_networks(attribute, networks):
+
+    # Normalize single network instances
+    if isinstance(networks, carthage.Network):
+        networks = [networks]
+
+    invalid = [net for net in networks if not isinstance(net, carthage.Network)]
+    if invalid:
+        raise TypeError(f'DnsmasqRole.{attribute} contains non-network values: {invalid!r}')
+
+    return networks
+
+@inject(model=AbstractMachineModel)
+async def find_relay_networks(model):
+    relay_networks = getattr(model, 'relay_networks', tuple())
+    relay_excluded_networks = getattr(model, 'relay_excluded_networks', tuple())
+
+    if relay_networks and relay_excluded_networks:
+        raise ValueError('relay_networks and relay_excluded_networks are mutually exclusive')
+    if model.relay_server and not relay_networks and not relay_excluded_networks:
+        raise ValueError('DnsmasqRole requires either relay_networks or relay_excluded_networks when relay_server is set')
+
+    if relay_networks:
+        relay_networks = await resolve_deferred(model.ainjector, relay_networks, {'model':model})
+        relay_networks = _validate_networks('relay_networks', relay_networks)
+
+    if relay_excluded_networks:
+        relay_excluded_networks = await resolve_deferred(model.ainjector, relay_excluded_networks, {'model':model})
+        relay_excluded_networks = _validate_networks('relay_excluded_networks', relay_excluded_networks)
+
+        attached = (link.net for link in model.network_links.values()
+                    if not link.member_of or link.member_of_link.local_type == 'vpn')
+
+        relay_networks = list({net for net in attached if net not in relay_excluded_networks})
+
+    return relay_networks
+
+@inject(model=AbstractMachineModel)
+async def find_served_networks(model):
+    if model.relay_server:
+        return ()
+
+    served_networks = getattr(model, 'served_networks', tuple())
+    if not served_networks:
+        return served_networks
+
+    served_networks = await resolve_deferred(model.ainjector, served_networks, {'model': model})
+    served_networks = _validate_networks('served_networks', served_networks)
+    return served_networks
+
+
+
+class DnsmasqRole(MachineModel, template=True):
+
+    '''Role providing dnsmasq as a DHCP server or relay.
+
+    relay_server
+        The IP address of the DHCP server to which requests are relayed.
+        When set, dnsmasq acts as a DHCP relay instead of a DHCP server.
+        Either :attr:`relay_networks` or :attr:`relay_excluded_networks` 
+        must also be non-empty.
+
+    relay_networks
+        A sequence of directly attached client-side networks on which to relay 
+        DHCP when :attr:`relay_server` is set.
+        Dnsmasq requires the relay to have a local address on every selected
+        network. Either this or :attr:`relay_excluded_networks` must
+        be non-empty when :attr:`relay_server` is set.
+
+    relay_excluded_networks
+        A sequence of directly attached networks on which not to relay DHCP
+        when :attr:`relay_server` is set. All other directly attached networks
+        are used. Either this or :attr:`relay_networks` must be
+        non-empty when :attr:`relay_server` is set.
+
+    served_networks
+        Additional :class:`carthage.Network` instances for which this role
+        should provide DHCP service even though the dnsmasq host has no
+        directly attached link. These networks are expected to reach the
+        server through a DHCP relay. This option is only used when
+        :attr:`relay_server` is not set. Their DHCP ranges include an explicit
+        netmask so dnsmasq can select a range using the relay address.
+    '''
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.injector.add_provider(InjectionKey('find_relay_networks'), find_relay_networks)
+        self.injector.add_provider(InjectionKey('find_served_networks'), find_served_networks)
 
     override_dependencies = True
     dnsmasq_replace_resolv_conf = True
+    relay_server = None
+    relay_networks = ()
+    relay_excluded_networks = ()
+    served_networks = ()
 
     dnsmasq_conf = mako_task("dhcp-dnsmasq.conf",
                              output = "etc/dnsmasq.d/dhcp.conf",
-                             model = InjectionKey(MachineModel))
+                             model = InjectionKey(MachineModel),
+                             relay_networks=InjectionKey('find_relay_networks'),
+                             served_networks=InjectionKey('find_served_networks'))
 
     class dhcp_customization(MachineCustomization):
 
